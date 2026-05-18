@@ -1,0 +1,34 @@
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "tarnobrzeg-112",
+          "appId": "1:305918132110:android:6a3585d4812f9114f3aedf",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "tarnobrzeg-112",
+          "appId": "1:000000000000:ios:tarnobrzeg112",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "web": {
+        "default": {
+          "projectId": "tarnobrzeg-112",
+          "appId": "1:000000000000:web:tarnobrzeg112"
+        }
+      }
+    }
+  }
+}

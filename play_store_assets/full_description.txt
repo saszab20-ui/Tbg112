@@ -1,0 +1,5 @@
+Tarnobrzeg 112 - Ratownictwo Powiatu Tarnobrzeskiego to prywatny komunikator informacyjny dla społeczności, strażaków, ratowników, moderatorów i administratorów.
+
+Aplikacja pomaga prowadzić czat główny, kanały jednostek, prywatne rozmowy, ogłoszenia, moderację, raporty oraz powiadomienia push. Konta nowych użytkowników trafiają do akceptacji administratora.
+
+Aplikacja nie jest oficjalnym systemem alarmowym 112, nie służy do zgłaszania zdarzeń i nie zastępuje numeru alarmowego 112. W sytuacji zagrożenia życia, zdrowia lub mienia należy dzwonić pod oficjalny numer alarmowy.

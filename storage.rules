@@ -1,0 +1,181 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isDevAdminAuth() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['email'])
+        && request.auth.token.email == 'badura_admin@tarnobrzeg112.local';
+    }
+
+    function profile() {
+      return firestore.get(
+        /databases/(default)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
+    function hasProfile() {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function activeUser() {
+      return isDevAdminAuth()
+        || (hasProfile() && profile().accountStatus == 'active');
+    }
+
+    function canUpload() {
+      return isDevAdminAuth()
+        || (activeUser()
+          && profile().blockedWrite != true
+          && profile().muted != true
+          && (!('mutedUntil' in profile())
+            || profile().mutedUntil == null
+            || profile().mutedUntil < request.time));
+    }
+
+    function isAdmin() {
+      return isDevAdminAuth()
+        || (activeUser() && profile().role == 'admin');
+    }
+
+    function chatExists(chatId) {
+      return firestore.exists(/databases/(default)/documents/chats/$(chatId));
+    }
+
+    function chat(chatId) {
+      return firestore.get(/databases/(default)/documents/chats/$(chatId)).data;
+    }
+
+    function chatType(chatId) {
+      return chat(chatId).type == null ? chat(chatId).chatKind : chat(chatId).type;
+    }
+
+    function isParticipant(chatId) {
+      return chatExists(chatId)
+        && chat(chatId).participants is list
+        && request.auth.uid in chat(chatId).participants;
+    }
+
+    function unitChatEligible() {
+      return hasProfile()
+        && profile().unitType in ['osp', 'psp', 'policja', 'zrm']
+        && profile().unitId is string
+        && profile().unitId != '';
+    }
+
+    function sameUnit(chatId) {
+      return chatExists(chatId)
+        && unitChatEligible()
+        && (
+          chat(chatId).unitId == profile().unitId
+          || chat(chatId).unitName == profile().unitName
+        );
+    }
+
+    function canAccessChat(scope, chatId) {
+      return isAdmin()
+        || (activeUser()
+          && (
+            chatId == 'main'
+            || (scope == 'unit' && unitChatEligible() && chatId == 'unit_' + profile().unitId)
+            || (chatExists(chatId)
+              && (
+                chatType(chatId) == 'main'
+                || (chatType(chatId) == 'unit' && sameUnit(chatId))
+                || isParticipant(chatId)
+              ))
+          ));
+    }
+
+    function imageType() {
+      return request.resource.contentType in [
+        'image/jpeg',
+        'image/png',
+        'image/webp'
+      ];
+    }
+
+    function videoType() {
+      return request.resource.contentType in [
+        'video/mp4',
+        'video/quicktime',
+        'video/webm'
+      ];
+    }
+
+    function audioType() {
+      return request.resource.contentType in [
+        'audio/mpeg',
+        'audio/mp4',
+        'audio/wav',
+        'audio/aac',
+        'audio/ogg'
+      ];
+    }
+
+    function fileType() {
+      return imageType()
+        || videoType()
+        || audioType()
+        || request.resource.contentType in [
+          'application/pdf',
+          'text/plain',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ];
+    }
+
+    match /avatars/{uid}/{fileName} {
+      allow read: if signedIn();
+      allow write: if signedIn()
+        && request.auth.uid == uid
+        && imageType()
+        && request.resource.size < 8 * 1024 * 1024;
+    }
+
+    match /chat_backgrounds/{chatId}/{fileName} {
+      allow read: if canAccessChat('group', chatId);
+      allow write: if canUpload()
+        && canAccessChat('group', chatId)
+        && imageType()
+        && request.resource.size < 8 * 1024 * 1024;
+    }
+
+    match /chat_images/{scope}/{chatId}/{fileName} {
+      allow read: if canAccessChat(scope, chatId);
+      allow write: if canUpload()
+        && canAccessChat(scope, chatId)
+        && imageType()
+        && request.resource.size < 8 * 1024 * 1024;
+    }
+
+    match /chat_videos/{scope}/{chatId}/{fileName} {
+      allow read: if canAccessChat(scope, chatId);
+      allow write: if canUpload()
+        && canAccessChat(scope, chatId)
+        && videoType()
+        && request.resource.size < 20 * 1024 * 1024;
+    }
+
+    match /chat_voice/{scope}/{chatId}/{fileName} {
+      allow read: if canAccessChat(scope, chatId);
+      allow write: if canUpload()
+        && canAccessChat(scope, chatId)
+        && audioType()
+        && request.resource.size < 20 * 1024 * 1024;
+    }
+
+    match /chat_files/{scope}/{chatId}/{fileName} {
+      allow read: if canAccessChat(scope, chatId);
+      allow write: if canUpload()
+        && canAccessChat(scope, chatId)
+        && fileType()
+        && request.resource.size < 20 * 1024 * 1024;
+    }
+  }
+}

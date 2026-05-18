@@ -1,0 +1,9 @@
+Projekt polityki prywatności:
+
+Tarnobrzeg 112 przetwarza dane podane przy rejestracji: imię, nazwisko, pseudonim, login, opcjonalny telefon, typ służby, nazwę jednostki/funkcję, województwo, powiat, kod zaproszenia oraz opcjonalny avatar. Dane są używane do identyfikacji użytkowników w prywatnym komunikatorze społeczności.
+
+Aplikacja przechowuje wiadomości, załączniki, raporty moderacyjne, logi administracyjne, status konta, role i tokeny powiadomień Firebase Cloud Messaging. Dane są przechowywane w Firebase Auth, Cloud Firestore, Firebase Storage oraz FCM.
+
+Użytkownik może poprosić administratora o usunięcie lub korektę danych. Administrator może blokować, zawieszać lub usuwać treści naruszające zasady społeczności.
+
+Aplikacja nie jest oficjalnym systemem alarmowym 112 i nie zastępuje kontaktu ze służbami ratunkowymi.

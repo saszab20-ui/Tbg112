@@ -1,0 +1,5 @@
+Dane zbierane: imię, nazwisko, pseudonim, login, techniczny email Firebase Auth, opcjonalny numer telefonu, typ służby, jednostka/funkcja, kod zaproszenia, avatar, wiadomości, załączniki, raporty, token FCM.
+Dane udostępniane: brak sprzedaży danych; widoczność danych ograniczona do użytkowników aplikacji zgodnie z rolą i kanałem.
+Szyfrowanie w tranzycie: tak, Firebase/HTTPS.
+Usuwanie danych: przez administratora na wniosek użytkownika.
+Cel: komunikacja społeczności, moderacja, bezpieczeństwo kont, powiadomienia.

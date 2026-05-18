@@ -1,0 +1,6 @@
+Wersja 1.0.0+1:
+- MVP komunikatora Tarnobrzeg 112.
+- Rejestracja z akceptacją administratora.
+- Czaty globalne, jednostek i prywatne.
+- Moderacja, raporty, przypięte wiadomości i logi.
+- Integracja Firebase Auth, Firestore, Storage i FCM.

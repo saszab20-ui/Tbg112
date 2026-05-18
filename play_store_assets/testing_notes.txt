@@ -1,0 +1,9 @@
+Testy wewnętrzne:
+1. Zarejestruj konto testowe i sprawdź status pending.
+2. Ustaw konto jako active w Firestore.
+3. Wyślij wiadomość na czacie głównym.
+4. Wyślij zdjęcie i plik.
+5. Sprawdź kanał jednostki.
+6. Otwórz rozmowę prywatną.
+7. Zgłoś wiadomość i zamknij raport jako admin.
+8. Sprawdź powiadomienia na fizycznym telefonie Android.

@@ -1,0 +1,454 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function hasProfile() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
+    function me() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function isDevAdminAuth() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['email'])
+        && request.auth.token.email == 'badura_admin@tarnobrzeg112.local';
+    }
+
+    function isActive() {
+      return isDevAdminAuth()
+        || (hasProfile() && me().accountStatus == 'active');
+    }
+
+    function isAdmin() {
+      return isDevAdminAuth()
+        || (isActive() && me().role == 'admin');
+    }
+
+    function isModerator() {
+      return isAdmin() || (isActive() && me().role == 'moderator');
+    }
+
+    function moderatorCan(key) {
+      return isAdmin()
+        || (isModerator()
+          && me().moderatorPermissions is map
+          && me().moderatorPermissions[key] == true);
+    }
+
+    function canWrite() {
+      return isDevAdminAuth()
+        || (isActive()
+          && me().blockedWrite != true
+          && me().muted != true
+          && (!('mutedUntil' in me())
+            || me().mutedUntil == null
+            || me().mutedUntil < request.time));
+    }
+
+    function unitChatEligible() {
+      return hasProfile()
+        && me().unitType in ['osp', 'psp', 'policja', 'zrm']
+        && me().unitName is string
+        && me().unitName != '';
+    }
+
+    function chatPath(chatId) {
+      return /databases/$(database)/documents/chats/$(chatId);
+    }
+
+    function chatExists(chatId) {
+      return exists(chatPath(chatId));
+    }
+
+    function chatExistsForWrite(chatId) {
+      return exists(chatPath(chatId)) || existsAfter(chatPath(chatId));
+    }
+
+    function chatData(chatId) {
+      return get(chatPath(chatId)).data;
+    }
+
+    function chatDataForWrite(chatId) {
+      return existsAfter(chatPath(chatId))
+        ? getAfter(chatPath(chatId)).data
+        : get(chatPath(chatId)).data;
+    }
+
+    function chatType(data) {
+      return data.type == null ? data.chatKind : data.type;
+    }
+
+    function participants(data) {
+      return data.participants == null ? [] : data.participants;
+    }
+
+    function isParticipant(data) {
+      return signedIn() && request.auth.uid in participants(data);
+    }
+
+    function sameUnit(data) {
+      return unitChatEligible()
+        && (
+          (data.unitId != null && data.unitId == me().unitId)
+          || (data.unitName != null && data.unitName == me().unitName)
+        );
+    }
+
+    function explicitChatAccess(data) {
+      return hasProfile()
+        && (
+          (me().visibleChatIds is list && data.id in me().visibleChatIds)
+          || (me().visibleUnitIds is list && data.unitId in me().visibleUnitIds)
+        );
+    }
+
+    function canAccessChatData(data) {
+      return isAdmin()
+        || (isActive()
+          && (
+            chatType(data) == 'main'
+            || (chatType(data) == 'unit' && (sameUnit(data) || explicitChatAccess(data)))
+            || isParticipant(data)
+            || explicitChatAccess(data)
+          ));
+    }
+
+    function canReadMessagesInChat(chatId) {
+      return isAdmin()
+        || (chatExists(chatId) && canAccessChatData(chatData(chatId)))
+        || (isActive()
+          && (
+            chatId == 'main'
+            || (unitChatEligible()
+              && me().unitId is string
+              && chatId == 'unit_' + me().unitId)
+          ));
+    }
+
+    function canCreateChat() {
+      return canWrite()
+        && (
+          chatType(request.resource.data) == 'main'
+          || (chatType(request.resource.data) == 'unit'
+            && (isAdmin() || sameUnit(request.resource.data)))
+          || ((chatType(request.resource.data) in ['private', 'group'])
+            && request.auth.uid in participants(request.resource.data))
+        );
+    }
+
+    function chatMessageMetadataKeysOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'updatedAt',
+        'lastMessage',
+        'lastMessageAt',
+        'unreadCount',
+        'typing'
+      ]);
+    }
+
+    function chatSettingsKeysOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'name',
+        'themeColor',
+        'backgroundType',
+        'backgroundImageUrl',
+        'backgroundPreset',
+        'inviteCode',
+        'inviteLink',
+        'updatedAt'
+      ]);
+    }
+
+    function groupParticipantKeysOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'participants',
+        'participantIds',
+        'participantLogins',
+        'participantNames',
+        'participantNameMap',
+        'unreadCount',
+        'typing',
+        'updatedAt'
+      ]);
+    }
+
+    function activeInviteForChat(chatId) {
+      return resource.data.inviteCode is string
+        && exists(/databases/$(database)/documents/invites/$(resource.data.inviteCode))
+        && get(/databases/$(database)/documents/invites/$(resource.data.inviteCode)).data.active == true
+        && get(/databases/$(database)/documents/invites/$(resource.data.inviteCode)).data.chatId == chatId;
+    }
+
+    function canUpdateGroupMembers(chatId) {
+      return isActive()
+        && chatType(resource.data) == 'group'
+        && groupParticipantKeysOnly()
+        && (
+          isAdmin()
+          || resource.data.createdBy == request.auth.uid
+          || (
+            activeInviteForChat(chatId)
+            && !(request.auth.uid in participants(resource.data))
+            && request.auth.uid in participants(request.resource.data)
+          )
+        );
+    }
+
+    function canUpdateChatSettings() {
+      return isAdmin()
+        || (isActive()
+          && resource.data.createdBy == request.auth.uid
+          && chatSettingsKeysOnly());
+    }
+
+    function isOwnMessageRecall() {
+      return canWrite()
+        && resource.data.senderId == request.auth.uid
+        && request.resource.data.senderId == resource.data.senderId
+        && request.resource.data.isDeleted == true
+        && request.resource.data.deleted == true
+        && request.resource.data.deletedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isDeleted',
+          'deleted',
+          'deletedAt',
+          'deletedBy',
+          'originalTextForAdmin',
+          'originalAttachmentsForAdmin',
+          'text',
+          'imageUrl',
+          'fileUrl',
+          'fileName',
+          'attachments'
+        ]);
+    }
+
+    function isModeratorRecall() {
+      return moderatorCan('recallMessages')
+        && request.resource.data.isDeleted == true
+        && request.resource.data.deleted == true
+        && request.resource.data.deletedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'isDeleted',
+          'deleted',
+          'deletedAt',
+          'deletedBy',
+          'originalTextForAdmin',
+          'originalAttachmentsForAdmin',
+          'text',
+          'imageUrl',
+          'fileUrl',
+          'fileName',
+          'attachments'
+        ]);
+    }
+
+    function isReactionOrReportUpdate() {
+      return isActive()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'reactions',
+          'reportCount'
+        ]);
+    }
+
+    function validMessageCreate(chatId) {
+      return canWrite()
+        && chatExistsForWrite(chatId)
+        && canAccessChatData(chatDataForWrite(chatId))
+        && request.resource.data.chatId == chatId
+        && request.resource.data.senderId == request.auth.uid
+        && request.resource.data.isDeleted != true
+        && request.resource.data.deleted != true;
+    }
+
+    match /users/{uid} {
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && (
+          (isDevAdminAuth()
+            && request.resource.data.login == 'badura_admin'
+            && request.resource.data.role == 'admin'
+            && request.resource.data.accountStatus == 'active')
+          || (request.resource.data.role == 'user'
+            && request.resource.data.accountStatus in ['pending', 'active'])
+        );
+
+      allow read: if isAdmin()
+        || (signedIn() && request.auth.uid == uid)
+        || isActive();
+
+      allow update: if isAdmin()
+        || (moderatorCan('approveAccounts')
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'accountStatus',
+            'unitType',
+            'serviceType',
+            'unitName',
+            'unitId',
+            'voivodeship',
+            'county',
+            'publicName'
+          ]))
+        || (moderatorCan('muteUsers')
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'muted',
+            'mutedUntil',
+            'mutedReason',
+            'mutedBy',
+            'blockedWrite'
+          ]))
+        || (isDevAdminAuth()
+          && request.auth.uid == uid
+          && request.resource.data.login == 'badura_admin'
+          && request.resource.data.role == 'admin'
+          && request.resource.data.accountStatus == 'active')
+        || (isActive()
+          && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'nickname',
+            'phoneNumber',
+            'description',
+            'avatarUrl',
+            'publicName',
+            'presenceStatus',
+            'lastSeenAt',
+            'fcmTokens'
+          ])
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.accountStatus == resource.data.accountStatus
+          && request.resource.data.unitId == resource.data.unitId
+          && request.resource.data.unitName == resource.data.unitName);
+
+      allow delete: if isAdmin();
+    }
+
+    match /chats/{chatId} {
+      allow read: if chatExists(chatId) && canAccessChatData(resource.data);
+      allow create: if canCreateChat();
+      allow update: if isAdmin()
+        || (canWrite() && canAccessChatData(resource.data) && chatMessageMetadataKeysOnly())
+        || canUpdateChatSettings()
+        || canUpdateGroupMembers(chatId);
+      allow delete: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read: if canReadMessagesInChat(chatId);
+        allow create: if validMessageCreate(chatId);
+        allow update: if isAdmin()
+          || (chatExists(chatId)
+            && canAccessChatData(chatData(chatId))
+            && (isOwnMessageRecall() || isModeratorRecall() || isReactionOrReportUpdate()));
+        allow delete: if isAdmin();
+      }
+
+      match /typing/{uid} {
+        allow read: if chatExists(chatId) && canAccessChatData(chatData(chatId));
+        allow write: if signedIn()
+          && request.auth.uid == uid
+          && canWrite()
+          && chatExists(chatId)
+          && canAccessChatData(chatData(chatId));
+      }
+    }
+
+    match /invites/{inviteCode} {
+      allow read: if signedIn();
+      allow create: if canWrite()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.chatId is string
+        && chatExistsForWrite(request.resource.data.chatId)
+        && (
+          isAdmin()
+          || chatDataForWrite(request.resource.data.chatId).createdBy == request.auth.uid
+          || request.auth.uid in participants(chatDataForWrite(request.resource.data.chatId))
+        );
+      allow update: if isAdmin()
+        || (isActive()
+          && resource.data.active == true
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'usedBy',
+            'usedCount'
+          ])
+          && request.auth.uid in request.resource.data.usedBy
+          && request.resource.data.usedCount == resource.data.usedCount + 1)
+        || (isActive()
+          && resource.data.createdBy == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'active'
+          ]));
+      allow delete: if isAdmin()
+        || (isActive() && resource.data.createdBy == request.auth.uid);
+    }
+
+    match /invite_codes/{code} {
+      allow read: if signedIn();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (signedIn()
+          && resource.data.active == true
+          && resource.data.usedCount < resource.data.maxUses
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'usedCount'
+          ])
+          && request.resource.data.usedCount == resource.data.usedCount + 1);
+    }
+
+    match /units/{unitId} {
+      allow read: if isActive();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isActive()
+        && (resource.data.recipientId == request.auth.uid
+          || resource.data.recipientId == 'all');
+      allow update: if isActive()
+        && resource.data.recipientId == request.auth.uid;
+      allow create, delete: if isAdmin();
+    }
+
+    match /reports/{reportId} {
+      allow read, update, delete: if isModerator();
+      allow create: if isActive()
+        && request.resource.data.reporterId == request.auth.uid;
+    }
+
+    match /moderation_logs/{logId} {
+      allow read: if isAdmin() || moderatorCan('accessLogs');
+      allow create: if isModerator();
+      allow update, delete: if isAdmin();
+    }
+
+    match /pinned_messages/{pinId} {
+      allow read: if isActive();
+      allow create, update, delete: if isModerator();
+    }
+
+    match /app_settings/{settingId} {
+      allow read: if signedIn();
+      allow create: if isAdmin()
+        || (settingId == 'superAdminCreated'
+          && isDevAdminAuth()
+          && request.resource.data.login == 'badura_admin')
+        || (settingId == 'adminBootstrap_badura_admin'
+          && isDevAdminAuth()
+          && request.resource.data.login == 'badura_admin');
+      allow update, delete: if isAdmin();
+
+      match /users/{uid} {
+        allow read: if isActive();
+        allow write: if canWrite() && request.auth.uid == uid;
+      }
+    }
+  }
+}

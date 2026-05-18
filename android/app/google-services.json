@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "305918132110",
+    "project_id": "tarnobrzeg-112",
+    "storage_bucket": "tarnobrzeg-112.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:305918132110:android:6a3585d4812f9114f3aedf",
+        "android_client_info": {
+          "package_name": "pl.tarnobrzeg112.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCqvJDPd_rkVDDSufXRnu4t-SLj4CW8L3Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
