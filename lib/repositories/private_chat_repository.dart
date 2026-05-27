@@ -273,6 +273,11 @@ class PrivateChatRepository {
       'participantNameMap': participantNames,
       'updatedAt': FieldValue.serverTimestamp(),
     };
+    for (final uid in participantIds) {
+      if (participantNames.containsKey(uid)) {
+        update['participantNameMap.$uid'] = participantNames[uid];
+      }
+    }
     final newJoins = <String>[];
     for (final uid in participantIds) {
       if (!chat.participantIds.contains(uid)) newJoins.add(uid);

@@ -258,6 +258,7 @@ class _StartUserCard extends StatelessWidget {
       PresenceStatus.busy => AppColors.orange,
       PresenceStatus.unavailable => AppColors.muted,
       PresenceStatus.offline => AppColors.red,
+      PresenceStatus.manual => AppColors.cyan,
     };
   }
 }

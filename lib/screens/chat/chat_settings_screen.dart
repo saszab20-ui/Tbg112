@@ -782,6 +782,11 @@ class _ChatSettingsScreenState extends ConsumerState<ChatSettingsScreen> {
           .read(privateChatRepositoryProvider)
           .addParticipant(chat: chat, actor: actor, user: member);
       _show('Dodano użytkownika');
+      if (mounted) {
+        setState(() {
+          _memberSearch.clear();
+        });
+      }
     } on Object catch (error) {
       _show('Nie udało się dodać członka: ${ErrorUtils.readable(error)}');
     }

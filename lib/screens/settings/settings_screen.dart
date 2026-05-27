@@ -111,11 +111,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         children: [
           const GlassPanel(child: Text(AppConstants.safetyNotice)),
           const SizedBox(height: 12),
-          const Card(
+          Card(
             child: ListTile(
-              leading: Icon(Icons.notifications_outlined),
-              title: Text('Powiadomienia push'),
-              subtitle: Text('Kanał FCM i powiadomienia lokalne'),
+              leading: const Icon(Icons.notifications_outlined),
+              title: const Text('Powiadomienia push'),
+              subtitle: const Text('Kanał FCM i powiadomienia lokalne'),
+              onTap: () => context.push(RoutePaths.pushNotifications),
             ),
           ),
           Card(

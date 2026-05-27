@@ -37,6 +37,7 @@ import 'package:tarnobrzeg112/screens/profile/edit_profile_screen.dart';
 import 'package:tarnobrzeg112/screens/profile/profile_screen.dart';
 import 'package:tarnobrzeg112/screens/profile/user_public_profile_screen.dart';
 import 'package:tarnobrzeg112/screens/settings/change_password_screen.dart';
+import 'package:tarnobrzeg112/screens/settings/push_notifications_screen.dart';
 import 'package:tarnobrzeg112/screens/settings/settings_screen.dart';
 import 'package:tarnobrzeg112/screens/splash_screen.dart';
 
@@ -274,6 +275,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RoutePaths.settings,
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: RoutePaths.pushNotifications,
+        builder: (context, state) => const PushNotificationsScreen(),
       ),
       GoRoute(
         path: RoutePaths.changePassword,
