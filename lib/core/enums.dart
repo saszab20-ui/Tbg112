@@ -126,6 +126,7 @@ enum PresenceStatus {
   online,
   offline,
   busy,
+  invisible,
   unavailable,
   manual;
 
@@ -133,6 +134,7 @@ enum PresenceStatus {
     PresenceStatus.online => 'Online',
     PresenceStatus.offline => 'Offline',
     PresenceStatus.busy => 'Zajęty',
+    PresenceStatus.invisible => 'Niewidoczny',
     PresenceStatus.unavailable => 'Niedostępny',
     PresenceStatus.manual => 'Własny status',
   };

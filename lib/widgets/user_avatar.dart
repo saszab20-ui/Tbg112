@@ -65,6 +65,7 @@ class UserAvatar extends StatelessWidget {
     return switch (user.presenceStatus) {
       PresenceStatus.online => AppColors.green,
       PresenceStatus.busy => AppColors.orange,
+      PresenceStatus.invisible => Colors.grey,
       PresenceStatus.unavailable => Colors.grey,
       PresenceStatus.offline => AppColors.red,
       PresenceStatus.manual => AppColors.cyan,
@@ -79,7 +80,8 @@ class UserAvatar extends StatelessWidget {
     return switch (user.presenceStatus) {
       PresenceStatus.online => 'Aktywny teraz',
       PresenceStatus.busy => 'Zajęty',
-      PresenceStatus.unavailable => 'Niewidoczny',
+      PresenceStatus.invisible => 'Niewidoczny',
+      PresenceStatus.unavailable => 'Niedostępny',
       PresenceStatus.offline =>
         user.lastSeenAt == null
             ? 'Offline'

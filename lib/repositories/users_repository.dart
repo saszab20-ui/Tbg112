@@ -326,8 +326,12 @@ class UsersRepository {
     final now = DateTime.now();
     final previous = _lastPresenceWrites[uid];
 
-    // If status is not manual, we check for debounce
-    if (status != PresenceStatus.manual &&
+    // If status is not a manual override, we check for debounce
+    final isManual = status == PresenceStatus.manual ||
+        status == PresenceStatus.busy ||
+        status == PresenceStatus.invisible;
+
+    if (!isManual &&
         previous != null &&
         previous.status == status &&
         now.difference(previous.at) < const Duration(seconds: 45)) {
@@ -339,8 +343,11 @@ class UsersRepository {
     final currentStatus = PresenceStatus.fromWire(currentStatusRaw);
 
     // Don't auto-override manual status with online/offline from regular activities
-    if (currentStatus == PresenceStatus.manual &&
-        status != PresenceStatus.manual) {
+    final isCurrentManual = currentStatus == PresenceStatus.manual ||
+        currentStatus == PresenceStatus.busy ||
+        currentStatus == PresenceStatus.invisible;
+
+    if (isCurrentManual && !isManual) {
       return;
     }
 

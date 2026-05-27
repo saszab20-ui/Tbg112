@@ -445,7 +445,10 @@ class _EventsList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final stream = ref.watch(eventsRepositoryProvider).watchEvents();
+    final user = ref.watch(currentAppUserProvider).asData?.value;
+    final stream = ref.watch(eventsRepositoryProvider).watchEvents(
+      includeExpired: user?.isModerator ?? false,
+    );
     final users = ref.watch(activeUsersProvider).asData?.value ?? const [];
     return StreamBuilder<List<EventModel>>(
       stream: stream,

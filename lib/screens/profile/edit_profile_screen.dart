@@ -253,10 +253,11 @@ class _PresenceStatusPicker extends StatelessWidget {
           ),
           items: [
             for (final status in PresenceStatus.values)
-              DropdownMenuItem(
-                value: status,
-                child: Text(status.label),
-              ),
+              if (status != PresenceStatus.unavailable)
+                DropdownMenuItem(
+                  value: status,
+                  child: Text(status.label),
+                ),
           ],
           onChanged: (value) {
             if (value != null) onChanged(value);
