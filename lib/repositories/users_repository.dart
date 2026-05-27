@@ -325,14 +325,36 @@ class UsersRepository {
   Future<void> updatePresence(String uid, PresenceStatus status) async {
     final now = DateTime.now();
     final previous = _lastPresenceWrites[uid];
-    if (previous != null &&
+
+    // If status is not manual, we check for debounce
+    if (status != PresenceStatus.manual &&
+        previous != null &&
         previous.status == status &&
         now.difference(previous.at) < const Duration(seconds: 45)) {
       return;
     }
+
+    final doc = await userRef(uid).get();
+    final currentStatusRaw = doc.data()?['presenceStatus'] as String?;
+    final currentStatus = PresenceStatus.fromWire(currentStatusRaw);
+
+    // Don't auto-override manual status with online/offline from regular activities
+    if (currentStatus == PresenceStatus.manual &&
+        status != PresenceStatus.manual) {
+      return;
+    }
+
     _lastPresenceWrites[uid] = _PresenceWrite(status: status, at: now);
     return userRef(uid).update({
       'presenceStatus': status.name,
+      'lastSeenAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> setCustomStatus(String uid, String statusText) {
+    return userRef(uid).update({
+      'presenceStatus': PresenceStatus.manual.name,
+      'customStatus': statusText.trim(),
       'lastSeenAt': FieldValue.serverTimestamp(),
     });
   }

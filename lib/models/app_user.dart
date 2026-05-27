@@ -22,6 +22,7 @@ class AppUser {
     required this.presenceStatus,
     required this.joinedAt,
     required this.lastSeenAt,
+    this.customStatus = '',
     this.avatarUrl,
     this.description = '',
     this.mutedUntil,
@@ -56,6 +57,7 @@ class AppUser {
   final PresenceStatus presenceStatus;
   final DateTime joinedAt;
   final DateTime? lastSeenAt;
+  final String customStatus;
   final String? avatarUrl;
   final String description;
   final DateTime? mutedUntil;
@@ -150,6 +152,7 @@ class AppUser {
     PresenceStatus? presenceStatus,
     DateTime? joinedAt,
     DateTime? lastSeenAt,
+    String? customStatus,
     String? avatarUrl,
     String? description,
     DateTime? mutedUntil,
@@ -184,6 +187,7 @@ class AppUser {
       presenceStatus: presenceStatus ?? this.presenceStatus,
       joinedAt: joinedAt ?? this.joinedAt,
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+      customStatus: customStatus ?? this.customStatus,
       avatarUrl: avatarUrl ?? this.avatarUrl,
       description: description ?? this.description,
       mutedUntil: mutedUntil ?? this.mutedUntil,
@@ -225,6 +229,7 @@ class AppUser {
       'role': role.name,
       'accountStatus': accountStatus.name,
       'presenceStatus': presenceStatus.name,
+      'customStatus': customStatus,
       'joinedAt': Timestamp.fromDate(joinedAt),
       'createdAt': Timestamp.fromDate(joinedAt),
       'lastSeenAt': lastSeenAt == null ? null : Timestamp.fromDate(lastSeenAt!),
@@ -299,6 +304,7 @@ class AppUser {
           DateTimeUtils.fromJson(map['createdAt']) ??
           DateTime.now(),
       lastSeenAt: DateTimeUtils.fromJson(map['lastSeenAt']),
+      customStatus: _string(map['customStatus']),
       avatarUrl: _nullableString(map['avatarUrl']),
       description: _text(map['description']),
       mutedUntil: DateTimeUtils.fromJson(map['mutedUntil']),

@@ -18,6 +18,7 @@ class RoutePaths {
   static const createGroupChat = '/private/create-group';
   static const chatSettingsBase = '/chat-settings';
   static const notifications = '/notifications';
+  static const pushNotifications = '/settings/push-notifications';
   static const profile = '/profile';
   static const userProfileBase = '/users';
   static const editProfile = '/profile/edit';

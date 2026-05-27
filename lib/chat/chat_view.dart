@@ -48,6 +48,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
   final _scrollController = ScrollController();
   int _messageLimit = AppConstants.messagesPageSize;
   bool _loadingOlder = false;
+  bool _hasMore = true;
   String? _latestMessageId;
   String? _lastReadMarkKey;
   final _loadedHistoryNoticeKeys = <String>{};
@@ -180,6 +181,7 @@ class _ChatViewState extends ConsumerState<ChatView> {
                     message: 'Napisz pierwszą wiadomość.',
                   );
                 }
+                _hasMore = items.length >= _messageLimit;
                 _ensureScrollablePagination(visibleItems.length);
                 return ListView.builder(
                   key: PageStorageKey('chat-$canonicalChatId'),
@@ -191,8 +193,8 @@ class _ChatViewState extends ConsumerState<ChatView> {
                   addSemanticIndexes: false,
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
-                  physics: const ClampingScrollPhysics(
-                    parent: AlwaysScrollableScrollPhysics(),
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: BouncingScrollPhysics(),
                   ),
                   itemCount: renderItems.length,
                   itemBuilder: (context, index) {
@@ -274,29 +276,34 @@ class _ChatViewState extends ConsumerState<ChatView> {
   void _loadOlderIfNeeded() {
     if (!_scrollController.hasClients ||
         _messageLimit >= 500 ||
-        _loadingOlder) {
+        _loadingOlder ||
+        !_hasMore) {
       return;
     }
     final position = _scrollController.position;
     if (position.maxScrollExtent < 1) return;
-    if (position.pixels > position.maxScrollExtent - 700) {
+    if (position.pixels > position.maxScrollExtent - 400) {
       _loadingOlder = true;
       setState(() => _messageLimit += AppConstants.messagesPageSize);
-      Future<void>.delayed(const Duration(milliseconds: 350), () {
+      Future<void>.delayed(const Duration(milliseconds: 400), () {
         if (mounted) _loadingOlder = false;
       });
     }
   }
 
   void _ensureScrollablePagination(int visibleCount) {
-    if (visibleCount < _messageLimit || _messageLimit >= 500 || _loadingOlder) {
+    if (visibleCount < _messageLimit ||
+        _messageLimit >= 500 ||
+        _loadingOlder ||
+        !_hasMore) {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           !_scrollController.hasClients ||
           _messageLimit >= 500 ||
-          _loadingOlder) {
+          _loadingOlder ||
+          !_hasMore) {
         return;
       }
       if (_scrollController.position.maxScrollExtent < 1) {

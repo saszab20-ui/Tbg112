@@ -126,13 +126,15 @@ enum PresenceStatus {
   online,
   offline,
   busy,
-  unavailable;
+  unavailable,
+  manual;
 
   String get label => switch (this) {
     PresenceStatus.online => 'Online',
     PresenceStatus.offline => 'Offline',
     PresenceStatus.busy => 'Zajęty',
     PresenceStatus.unavailable => 'Niedostępny',
+    PresenceStatus.manual => 'Własny status',
   };
 
   static PresenceStatus fromWire(String? value) =>

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/models/app_user.dart';
 import 'package:tarnobrzeg112/providers/auth_providers.dart';
 import 'package:tarnobrzeg112/providers/firebase_providers.dart';
@@ -26,6 +27,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   final _nickname = TextEditingController();
   final _phoneNumber = TextEditingController();
   final _description = TextEditingController();
+  final _customStatus = TextEditingController();
   final _picker = ImagePicker();
   XFile? _avatar;
   String? _initializedUid;
@@ -37,6 +39,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _nickname.dispose();
     _phoneNumber.dispose();
     _description.dispose();
+    _customStatus.dispose();
     super.dispose();
   }
 
@@ -114,6 +117,18 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
+                    _PresenceStatusPicker(
+                      currentStatus: user.presenceStatus,
+                      customStatusController: _customStatus,
+                      onChanged: (status) {
+                        if (status != PresenceStatus.manual) {
+                          ref
+                              .read(usersRepositoryProvider)
+                              .updatePresence(user.uid, status);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     OutlinedButton.icon(
                       onPressed: _pickAvatar,
                       icon: const Icon(Icons.image_outlined),
@@ -154,6 +169,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     _nickname.text = user.nickname;
     _phoneNumber.text = user.phoneNumber;
     _description.text = user.description;
+    _customStatus.text = user.customStatus;
   }
 
   Future<void> _pickAvatar() async {
@@ -167,6 +183,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
       final nameParts = _splitFullName(_fullName.text);
       if (!user.hasFullName && nameParts == null) {
         throw StateError('Wpisz imię i nazwisko.');
+      }
+      if (_customStatus.text.trim().isNotEmpty) {
+        await ref
+            .read(usersRepositoryProvider)
+            .setCustomStatus(user.uid, _customStatus.text);
       }
       await ref
           .read(usersRepositoryProvider)
@@ -201,6 +222,59 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
         .toList();
     if (parts.length < 2) return null;
     return [parts.first, parts.skip(1).join(' ')];
+  }
+}
+
+class _PresenceStatusPicker extends StatelessWidget {
+  const _PresenceStatusPicker({
+    required this.currentStatus,
+    required this.customStatusController,
+    required this.onChanged,
+  });
+
+  final PresenceStatus currentStatus;
+  final TextEditingController customStatusController;
+  final ValueChanged<PresenceStatus> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Status aktywności',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<PresenceStatus>(
+          initialValue: currentStatus,
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.circle_notifications_outlined),
+          ),
+          items: [
+            for (final status in PresenceStatus.values)
+              DropdownMenuItem(
+                value: status,
+                child: Text(status.label),
+              ),
+          ],
+          onChanged: (value) {
+            if (value != null) onChanged(value);
+          },
+        ),
+        if (currentStatus == PresenceStatus.manual) ...[
+          const SizedBox(height: 12),
+          TextField(
+            controller: customStatusController,
+            decoration: const InputDecoration(
+              labelText: 'Twój status',
+              hintText: 'np. Na akcji, W drodze...',
+              prefixIcon: Icon(Icons.edit_note),
+            ),
+          ),
+        ],
+      ],
+    );
   }
 }
 

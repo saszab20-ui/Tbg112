@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/models/app_user.dart';
 import 'package:tarnobrzeg112/themes/app_colors.dart';
+import 'package:tarnobrzeg112/utils/date_time_utils.dart';
 
 class UserAvatar extends StatelessWidget {
   const UserAvatar({required this.user, super.key, this.radius = 22});
@@ -66,15 +67,24 @@ class UserAvatar extends StatelessWidget {
       PresenceStatus.busy => AppColors.orange,
       PresenceStatus.unavailable => Colors.grey,
       PresenceStatus.offline => AppColors.red,
+      PresenceStatus.manual => AppColors.cyan,
     };
   }
 
   String _presenceLabel(AppUser user) {
+    if (user.presenceStatus == PresenceStatus.manual &&
+        user.customStatus.isNotEmpty) {
+      return user.customStatus;
+    }
     return switch (user.presenceStatus) {
       PresenceStatus.online => 'Aktywny teraz',
       PresenceStatus.busy => 'Zajęty',
       PresenceStatus.unavailable => 'Niewidoczny',
-      PresenceStatus.offline => 'Offline',
+      PresenceStatus.offline =>
+        user.lastSeenAt == null
+            ? 'Offline'
+            : 'Widziano ${DateTimeUtils.chatTime(user.lastSeenAt!)}',
+      PresenceStatus.manual => 'Własny status',
     };
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/models/app_user.dart';
 import 'package:tarnobrzeg112/providers/auth_providers.dart';
 import 'package:tarnobrzeg112/routes/route_paths.dart';
@@ -103,6 +104,7 @@ class _ProfileContent extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
+              _Info('Status', _presenceLabel(user)),
               _Info('Login', user.login),
               _Info('Pseudonim', user.nickname),
               _Info('Imię i nazwisko', _fullNameValue(user)),
@@ -157,4 +159,16 @@ String _fullNameValue(AppUser user) {
   return user.hasFullName
       ? user.fullName
       : 'Brak imienia i nazwiska — wymagane uzupełnienie';
+}
+
+String _presenceLabel(AppUser user) {
+  if (user.presenceStatus == PresenceStatus.manual &&
+      user.customStatus.isNotEmpty) {
+    return user.customStatus;
+  }
+  final base = user.presenceStatus.label;
+  if (user.presenceStatus == PresenceStatus.offline && user.lastSeenAt != null) {
+    return '$base (widziano ${DateTimeUtils.chatTime(user.lastSeenAt!)})';
+  }
+  return base;
 }
