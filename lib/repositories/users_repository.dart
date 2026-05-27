@@ -322,31 +322,36 @@ class UsersRepository {
     await userRef(user.uid).update(update);
   }
 
-  Future<void> updatePresence(String uid, PresenceStatus status) async {
+  Future<void> updatePresence(
+    String uid,
+    PresenceStatus status, {
+    bool manual = false,
+  }) async {
     final now = DateTime.now();
     final previous = _lastPresenceWrites[uid];
 
-    // If status is not manual, we check for debounce
-    if (status != PresenceStatus.manual &&
-        previous != null &&
-        previous.status == status &&
-        now.difference(previous.at) < const Duration(seconds: 45)) {
-      return;
-    }
+    // If this is an automatic heartbeat and not a manual change
+    if (!manual) {
+      // Debounce automatic updates
+      if (previous != null &&
+          previous.status == status &&
+          now.difference(previous.at) < const Duration(seconds: 45)) {
+        return;
+      }
 
-    final doc = await userRef(uid).get();
-    final currentStatusRaw = doc.data()?['presenceStatus'] as String?;
-    final currentStatus = PresenceStatus.fromWire(currentStatusRaw);
+      final doc = await userRef(uid).get();
+      final isManualStatus = doc.data()?['isManualStatus'] == true;
 
-    // Don't auto-override manual status with online/offline from regular activities
-    if (currentStatus == PresenceStatus.manual &&
-        status != PresenceStatus.manual) {
-      return;
+      // Don't auto-override manual override statuses with heartbeats
+      if (isManualStatus) {
+        return;
+      }
     }
 
     _lastPresenceWrites[uid] = _PresenceWrite(status: status, at: now);
     return userRef(uid).update({
       'presenceStatus': status.name,
+      'isManualStatus': manual,
       'lastSeenAt': FieldValue.serverTimestamp(),
     });
   }
@@ -354,6 +359,7 @@ class UsersRepository {
   Future<void> setCustomStatus(String uid, String statusText) {
     return userRef(uid).update({
       'presenceStatus': PresenceStatus.manual.name,
+      'isManualStatus': true,
       'customStatus': statusText.trim(),
       'lastSeenAt': FieldValue.serverTimestamp(),
     });

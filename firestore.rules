@@ -278,6 +278,11 @@ service cloud.firestore {
         'joinedAt',
         'hiddenFor',
         'updatedAt'
+      ]) || request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'participantNameMap',
+        'unreadCount',
+        'typing',
+        'joinedAt'
       ]);
     }
 
@@ -295,6 +300,11 @@ service cloud.firestore {
         'visibilityMode',
         'expiresAt',
         'updatedAt'
+      ]) || request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'participantNameMap',
+        'unreadCount',
+        'typing',
+        'joinedAt'
       ]);
     }
 
@@ -435,7 +445,19 @@ service cloud.firestore {
         && !isServicePreviewUnitChat(chatId)
         && canAccessChat(chatId, chatDataForWrite(chatId))
         && request.resource.data.chatId == chatId
-        && request.resource.data.senderId == request.auth.uid
+        && (
+          request.resource.data.senderId == request.auth.uid
+          || (
+            request.resource.data.senderId == 'system'
+            && (chatType(chatDataForWrite(chatId)) in ['group', 'private'])
+            && (
+              isAdmin()
+              || chatDataForWrite(chatId).createdBy == request.auth.uid
+              || chatDataForWrite(chatId).ownerId == request.auth.uid
+              || moderatorCan('manageChatMembers')
+            )
+          )
+        )
         && request.resource.data.isDeleted != true
         && request.resource.data.deleted != true;
     }

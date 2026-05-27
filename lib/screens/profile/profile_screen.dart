@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/models/app_user.dart';
 import 'package:tarnobrzeg112/providers/auth_providers.dart';
+import 'package:tarnobrzeg112/providers/firebase_providers.dart';
 import 'package:tarnobrzeg112/routes/route_paths.dart';
+import 'package:tarnobrzeg112/themes/app_colors.dart';
 import 'package:tarnobrzeg112/utils/date_time_utils.dart';
 import 'package:tarnobrzeg112/utils/error_utils.dart';
 import 'package:tarnobrzeg112/widgets/app_scaffold.dart';
@@ -61,13 +63,13 @@ class ProfileScreen extends ConsumerWidget {
   }
 }
 
-class _ProfileContent extends StatelessWidget {
+class _ProfileContent extends ConsumerWidget {
   const _ProfileContent({required this.user});
 
   final AppUser user;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -104,7 +106,10 @@ class _ProfileContent extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 16),
-              _Info('Status', _presenceLabel(user)),
+              InkWell(
+                onTap: () => _showStatusSelector(context, ref, user),
+                child: _Info('Status', _presenceLabel(user)),
+              ),
               _Info('Login', user.login),
               _Info('Pseudonim', user.nickname),
               _Info('Imię i nazwisko', _fullNameValue(user)),
@@ -171,4 +176,63 @@ String _presenceLabel(AppUser user) {
     return '$base (widziano ${DateTimeUtils.chatTime(user.lastSeenAt!)})';
   }
   return base;
+}
+
+void _showStatusSelector(BuildContext context, WidgetRef ref, AppUser user) {
+  showModalBottomSheet(
+    context: context,
+    showDragHandle: true,
+    builder: (context) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              'Wybierz status',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+          ),
+          for (final status in PresenceStatus.values)
+            if (status != PresenceStatus.unavailable &&
+                status != PresenceStatus.manual)
+              ListTile(
+                leading: Icon(
+                  Icons.circle,
+                  color: _presenceColor(status),
+                  size: 16,
+                ),
+                title: Text(status.label),
+                trailing: user.presenceStatus == status
+                    ? const Icon(Icons.check, color: AppColors.green)
+                    : null,
+                onTap: () {
+                  ref
+                      .read(usersRepositoryProvider)
+                      .updatePresence(user.uid, status, manual: true);
+                  Navigator.pop(context);
+                },
+              ),
+          ListTile(
+            leading: const Icon(Icons.edit_outlined, size: 18),
+            title: const Text('Własny status...'),
+            onTap: () {
+              Navigator.pop(context);
+              context.push(RoutePaths.editProfile);
+            },
+          ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    ),
+  );
+}
+
+Color _presenceColor(PresenceStatus status) {
+  return switch (status) {
+    PresenceStatus.online => AppColors.green,
+    PresenceStatus.busy => AppColors.orange,
+    PresenceStatus.invisible => Colors.grey,
+    _ => Colors.grey.shade600,
+  };
 }

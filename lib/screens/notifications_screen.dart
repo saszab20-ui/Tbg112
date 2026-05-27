@@ -438,13 +438,36 @@ class _NotificationsList extends ConsumerWidget {
 
 enum _AnnouncementAction { edit, delete }
 
-class _EventsList extends ConsumerWidget {
+class _EventsList extends ConsumerStatefulWidget {
   const _EventsList({required this.currentUserId});
 
   final String currentUserId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_EventsList> createState() => _EventsListState();
+}
+
+class _EventsListState extends ConsumerState<_EventsList> {
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh every minute to update expiration status
+    _refreshTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final user = ref.watch(currentAppUserProvider).asData?.value;
     final stream = ref.watch(eventsRepositoryProvider).watchEvents();
     final users = ref.watch(activeUsersProvider).asData?.value ?? const [];
     return StreamBuilder<List<EventModel>>(
@@ -460,7 +483,14 @@ class _EventsList extends ConsumerWidget {
             onAction: () => ref.invalidate(eventsRepositoryProvider),
           );
         }
-        final displayItems = snapshot.data ?? const <EventModel>[];
+        final rawItems = snapshot.data ?? const <EventModel>[];
+        final now = DateTime.now();
+        final cutoff = now.subtract(const Duration(hours: 4));
+        final displayItems = rawItems.where((event) {
+          if (user?.isModerator == true) return true;
+          return event.dateTime.isAfter(cutoff);
+        }).toList();
+
         if (displayItems.isNotEmpty) {
           return ListView.separated(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
@@ -468,7 +498,7 @@ class _EventsList extends ConsumerWidget {
             separatorBuilder: (_, _) => const SizedBox(height: 12),
             itemBuilder: (context, index) => _EventCard(
               event: displayItems[index],
-              currentUserId: currentUserId,
+              currentUserId: widget.currentUserId,
               users: users,
             ),
           );
@@ -498,8 +528,7 @@ class _EventsList extends ConsumerWidget {
             onAction: () => ref.invalidate(eventsRepositoryProvider),
           );
         }
-        final items = snapshot.data ?? const <EventModel>[];
-        if (items.isEmpty) {
+        if (displayItems.isEmpty) {
           return const EmptyState(
             icon: Icons.event_busy_outlined,
             title: 'Brak wydarzeń',
@@ -508,11 +537,11 @@ class _EventsList extends ConsumerWidget {
         }
         return ListView.separated(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-          itemCount: items.length,
+          itemCount: displayItems.length,
           separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemBuilder: (context, index) => _EventCard(
-            event: items[index],
-            currentUserId: currentUserId,
+            event: displayItems[index],
+            currentUserId: widget.currentUserId,
             users: users,
           ),
         );

@@ -85,8 +85,10 @@ class _PushNotificationsScreenState extends ConsumerState<PushNotificationsScree
             loading: _requestingPermission,
             onRequest: _requestPermission,
           ),
-          const SizedBox(height: 16),
-          const _FCMTokenCard(),
+          if (user.isModerator) ...[
+            const SizedBox(height: 16),
+            const _FCMTokenCard(),
+          ],
           const SizedBox(height: 16),
           _SettingsSection(user: user),
         ],
