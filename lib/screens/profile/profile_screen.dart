@@ -28,7 +28,7 @@ class ProfileScreen extends ConsumerWidget {
       actions: [
         IconButton(
           tooltip: 'Edytuj',
-          onPressed: () => context.go(RoutePaths.editProfile),
+          onPressed: () => context.push(RoutePaths.editProfile),
           icon: const Icon(Icons.edit_outlined),
         ),
       ],
@@ -78,7 +78,7 @@ class _ProfileContent extends StatelessWidget {
               UserAvatar(user: user, radius: 46),
               const SizedBox(height: 12),
               Text(
-                _value(user.nickname),
+                user.displayName,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w900,
@@ -105,6 +105,7 @@ class _ProfileContent extends StatelessWidget {
               const SizedBox(height: 16),
               _Info('Login', user.login),
               _Info('Pseudonim', user.nickname),
+              _Info('Imię i nazwisko', _fullNameValue(user)),
               _Info('Jednostka', user.unitName),
               _Info('Typ służby', user.unitType.label),
               _Info('Powiat', user.county),
@@ -123,7 +124,7 @@ class _ProfileContent extends StatelessWidget {
             leading: const Icon(Icons.lock_reset),
             title: const Text('Zmień hasło'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.go(RoutePaths.changePassword),
+            onTap: () => context.push(RoutePaths.changePassword),
           ),
         ),
       ],
@@ -150,4 +151,10 @@ class _Info extends StatelessWidget {
 String _value(String value) {
   final text = value.trim();
   return text.isEmpty || text == '-' ? 'Brak danych' : text;
+}
+
+String _fullNameValue(AppUser user) {
+  return user.hasFullName
+      ? user.fullName
+      : 'Brak imienia i nazwiska — wymagane uzupełnienie';
 }

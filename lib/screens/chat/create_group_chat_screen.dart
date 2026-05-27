@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:tarnobrzeg112/models/app_user.dart';
 import 'package:tarnobrzeg112/providers/auth_providers.dart';
 import 'package:tarnobrzeg112/providers/firebase_providers.dart';
-import 'package:tarnobrzeg112/repositories/private_chat_repository.dart';
 import 'package:tarnobrzeg112/routes/route_paths.dart';
 import 'package:tarnobrzeg112/utils/error_utils.dart';
 import 'package:tarnobrzeg112/widgets/app_scaffold.dart';
@@ -25,7 +23,6 @@ class _CreateGroupChatScreenState extends ConsumerState<CreateGroupChatScreen> {
   final _search = TextEditingController();
   final _selected = <String>{};
   bool _creating = false;
-  GroupChatCreationResult? _lastResult;
 
   @override
   void dispose() {
@@ -123,7 +120,7 @@ class _CreateGroupChatScreenState extends ConsumerState<CreateGroupChatScreen> {
             icon: Icons.people_outline,
             title: 'Brak użytkowników',
             message:
-                'Możesz utworzyć grupę tylko dla siebie i wysłać link zaproszenia.',
+                'Możesz utworzyć grupę tylko dla siebie i później dodać członków z ustawień czatu.',
           )
         else
           for (final user in candidates)
@@ -147,24 +144,9 @@ class _CreateGroupChatScreenState extends ConsumerState<CreateGroupChatScreen> {
                 ),
               ),
             ),
-        if (_lastResult != null) ...[
-          const SizedBox(height: 12),
-          Card(
-            child: ListTile(
-              leading: const Icon(Icons.link),
-              title: const Text('Link zaproszenia'),
-              subtitle: SelectableText(_lastResult!.inviteLink),
-              trailing: IconButton(
-                tooltip: 'Kopiuj link',
-                icon: const Icon(Icons.copy),
-                onPressed: () => _copyInviteLink(_lastResult!.inviteLink),
-              ),
-            ),
-          ),
-        ],
         const SizedBox(height: 12),
         FilledButton.icon(
-          onPressed: _creating ? null : () => _create(current, users, true),
+          onPressed: _creating ? null : () => _create(current, users),
           icon: _creating
               ? const SizedBox(
                   width: 18,
@@ -174,43 +156,28 @@ class _CreateGroupChatScreenState extends ConsumerState<CreateGroupChatScreen> {
               : const Icon(Icons.add),
           label: const Text('Utwórz czat'),
         ),
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: _creating ? null : () => _create(current, users, false),
-          icon: const Icon(Icons.link),
-          label: const Text('Utwórz link zaproszenia'),
-        ),
       ],
     );
   }
 
-  Future<void> _create(
-    AppUser current,
-    List<AppUser> users,
-    bool openAfterCreate,
-  ) async {
+  Future<void> _create(AppUser current, List<AppUser> users) async {
     setState(() => _creating = true);
     try {
       final participants = users
           .where((user) => _selected.contains(user.uid))
           .toList();
-      final result = await ref
+      final chatId = await ref
           .read(privateChatRepositoryProvider)
           .createGroupChat(
             owner: current,
             name: _name.text,
             participants: participants,
           );
-      setState(() => _lastResult = result);
       if (!mounted) return;
-      await _copyInviteLink(result.inviteLink, silent: true);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Grupa utworzona. Link: ${result.inviteLink}')),
-      );
-      if (openAfterCreate && mounted) {
-        context.go(RoutePaths.privateChat(result.chatId));
-      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Grupa utworzona.')));
+      context.go(RoutePaths.privateChat(chatId));
     } on Object catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -223,13 +190,5 @@ class _CreateGroupChatScreenState extends ConsumerState<CreateGroupChatScreen> {
     } finally {
       if (mounted) setState(() => _creating = false);
     }
-  }
-
-  Future<void> _copyInviteLink(String link, {bool silent = false}) async {
-    await Clipboard.setData(ClipboardData(text: link));
-    if (silent || !mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Link skopiowany.')));
   }
 }

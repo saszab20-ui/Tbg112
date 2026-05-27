@@ -13,12 +13,13 @@ class RoutePaths {
   static const chats = '/chats';
   static const globalChat = '/chat/global';
   static const unitChatBase = '/chat/unit';
-  static const inviteBase = '/chat/invite';
+  static const firstLoginTutorial = '/first-login';
   static const privateChats = '/private';
   static const createGroupChat = '/private/create-group';
   static const chatSettingsBase = '/chat-settings';
   static const notifications = '/notifications';
   static const profile = '/profile';
+  static const userProfileBase = '/users';
   static const editProfile = '/profile/edit';
   static const settings = '/settings';
   static const changePassword = '/settings/password';
@@ -30,9 +31,10 @@ class RoutePaths {
   static const reports = '/admin/reports';
   static const logs = '/admin/logs';
   static const deletedMessages = '/admin/deleted-messages';
+  static const adminServiceMode = '/admin/service';
 
   static String unitChat(String unitId) => '$unitChatBase/$unitId';
-  static String invite(String inviteCode) => '$inviteBase/$inviteCode';
   static String privateChat(String chatId) => '$privateChats/$chatId';
   static String chatSettings(String chatId) => '$chatSettingsBase/$chatId';
+  static String userProfile(String uid) => '$userProfileBase/$uid';
 }

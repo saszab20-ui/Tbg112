@@ -94,6 +94,7 @@ service firebase.storage {
 
     function imageType() {
       return request.resource.contentType in [
+        'image/jpg',
         'image/jpeg',
         'image/png',
         'image/webp'
@@ -112,6 +113,7 @@ service firebase.storage {
       return request.resource.contentType in [
         'audio/mpeg',
         'audio/mp4',
+        'audio/x-m4a',
         'audio/wav',
         'audio/aac',
         'audio/ogg'
@@ -176,6 +178,13 @@ service firebase.storage {
         && canAccessChat(scope, chatId)
         && fileType()
         && request.resource.size < 20 * 1024 * 1024;
+    }
+
+    match /event_posters/{eventId}/{fileName} {
+      allow read: if activeUser();
+      allow write: if canUpload()
+        && imageType()
+        && request.resource.size < 8 * 1024 * 1024;
     }
   }
 }

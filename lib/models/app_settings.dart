@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tarnobrzeg112/utils/date_time_utils.dart';
+import 'package:tarnobrzeg112/utils/text_utils.dart';
 
 class AppSettings {
   const AppSettings({
@@ -38,8 +39,12 @@ class AppSettings {
       registrationEnabled: (map['registrationEnabled'] as bool?) ?? true,
       maintenanceMode: (map['maintenanceMode'] as bool?) ?? false,
       minSupportedBuild: (map['minSupportedBuild'] as num?)?.toInt() ?? 1,
-      broadcastTitle: (map['broadcastTitle'] as String?) ?? '',
-      broadcastBody: (map['broadcastBody'] as String?) ?? '',
+      broadcastTitle: TextUtils.repairPolishText(
+        (map['broadcastTitle'] as String?) ?? '',
+      ),
+      broadcastBody: TextUtils.repairPolishText(
+        (map['broadcastBody'] as String?) ?? '',
+      ),
       updatedAt: DateTimeUtils.fromJson(map['updatedAt']) ?? DateTime.now(),
     );
   }

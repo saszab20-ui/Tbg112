@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tarnobrzeg112/utils/date_time_utils.dart';
+import 'package:tarnobrzeg112/utils/text_utils.dart';
 
 class ModerationLog {
   const ModerationLog({
@@ -50,15 +51,16 @@ class ModerationLog {
       action: (map['action'] as String?) ?? '',
       performedBy:
           (map['performedBy'] as String?) ?? (map['actorId'] as String?) ?? '',
-      performedByLogin:
-          (map['performedByLogin'] as String?) ??
-          (map['actorName'] as String?) ??
-          '',
+      performedByLogin: TextUtils.repairPolishText(
+        (map['performedByLogin'] as String?) ??
+            (map['actorName'] as String?) ??
+            '',
+      ),
       createdAt: DateTimeUtils.fromJson(map['createdAt']) ?? DateTime.now(),
       targetUserId: map['targetUserId'] as String?,
-      targetUserLogin: map['targetUserLogin'] as String?,
-      oldValue: map['oldValue'] as String?,
-      newValue: map['newValue'] as String? ?? map['details'] as String?,
+      targetUserLogin: _nullableText(map['targetUserLogin']),
+      oldValue: _nullableText(map['oldValue']),
+      newValue: _nullableText(map['newValue'] ?? map['details']),
       targetMessageId: map['targetMessageId'] as String?,
     );
   }
@@ -68,4 +70,10 @@ class ModerationLog {
   ) {
     return ModerationLog.fromMap(doc.data() ?? {}, fallbackId: doc.id);
   }
+}
+
+String? _nullableText(Object? value) {
+  final text = value?.toString().trim() ?? '';
+  if (text.isEmpty) return null;
+  return TextUtils.repairPolishText(text);
 }

@@ -4,8 +4,8 @@ class FirestoreCollections {
   static const users = 'users';
   static const units = 'units';
   static const chats = 'chats';
-  static const invites = 'invites';
   static const notifications = 'notifications';
+  static const events = 'events';
   static const reports = 'reports';
   static const moderationLogs = 'moderation_logs';
   static const pinnedMessages = 'pinned_messages';

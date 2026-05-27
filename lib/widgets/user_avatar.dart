@@ -1,5 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/models/app_user.dart';
 import 'package:tarnobrzeg112/themes/app_colors.dart';
 
@@ -12,48 +14,68 @@ class UserAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final avatarUrl = user.avatarUrl;
+    final borderColor = _presenceBorderColor(user);
+    final initials = Text(
+      user.initials,
+      style: TextStyle(
+        color: AppColors.white,
+        fontSize: radius * 0.54,
+        fontWeight: FontWeight.w900,
+      ),
+    );
     final child = avatarUrl == null || avatarUrl.isEmpty
-        ? Text(
-            user.initials,
-            style: TextStyle(
-              color: AppColors.white,
-              fontSize: radius * 0.54,
-              fontWeight: FontWeight.w900,
-            ),
-          )
+        ? initials
         : ClipOval(
-            child: CachedNetworkImage(
-              imageUrl: avatarUrl,
-              width: radius * 2,
-              height: radius * 2,
-              fit: BoxFit.cover,
-            ),
+            child: kIsWeb
+                ? Image.network(
+                    avatarUrl,
+                    width: radius * 2,
+                    height: radius * 2,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => Center(child: initials),
+                  )
+                : CachedNetworkImage(
+                    imageUrl: avatarUrl,
+                    width: radius * 2,
+                    height: radius * 2,
+                    fit: BoxFit.cover,
+                    placeholder: (_, _) => Center(child: initials),
+                    errorWidget: (_, _, _) => Center(child: initials),
+                  ),
           );
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        CircleAvatar(
+    return Tooltip(
+      message: _presenceLabel(user),
+      child: Container(
+        padding: const EdgeInsets.all(2.5),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(color: borderColor, width: 2.5),
+        ),
+        child: CircleAvatar(
           radius: radius,
           backgroundColor: AppColors.panelAlt,
           child: child,
         ),
-        Positioned(
-          right: 0,
-          bottom: 0,
-          child: Container(
-            width: radius * 0.45,
-            height: radius * 0.45,
-            decoration: BoxDecoration(
-              color: user.presenceStatus.name == 'online'
-                  ? AppColors.green
-                  : AppColors.muted,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.black, width: 2),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
+  }
+
+  Color _presenceBorderColor(AppUser user) {
+    return switch (user.presenceStatus) {
+      PresenceStatus.online => AppColors.green,
+      PresenceStatus.busy => AppColors.orange,
+      PresenceStatus.unavailable => Colors.grey,
+      PresenceStatus.offline => AppColors.red,
+    };
+  }
+
+  String _presenceLabel(AppUser user) {
+    return switch (user.presenceStatus) {
+      PresenceStatus.online => 'Aktywny teraz',
+      PresenceStatus.busy => 'Zajęty',
+      PresenceStatus.unavailable => 'Niewidoczny',
+      PresenceStatus.offline => 'Offline',
+    };
   }
 }
 
@@ -64,17 +86,33 @@ class OnlineAvatarStack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final visible = users.take(5).toList();
-    return SizedBox(
-      width: 34.0 + visible.length * 20,
-      height: 34,
-      child: Stack(
+    final count = users.length;
+    if (count == 0) return const SizedBox.shrink();
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 140),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: AppColors.panelAlt,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          for (var i = 0; i < visible.length; i++)
-            Positioned(
-              left: i * 20,
-              child: UserAvatar(user: visible[i], radius: 17),
+          const Icon(
+            Icons.people_alt_outlined,
+            size: 16,
+            color: AppColors.green,
+          ),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              'Aktywni: $count',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
             ),
+          ),
         ],
       ),
     );

@@ -4,15 +4,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:tarnobrzeg112/providers/auth_providers.dart';
 import 'package:tarnobrzeg112/providers/firebase_providers.dart';
-import 'package:tarnobrzeg112/repositories/auth_repository.dart';
+import 'package:tarnobrzeg112/providers/navigation_providers.dart';
 import 'package:tarnobrzeg112/routes/route_paths.dart';
-import 'package:tarnobrzeg112/utils/text_utils.dart';
+import 'package:tarnobrzeg112/services/local_preferences.dart';
 import 'package:tarnobrzeg112/widgets/app_background.dart';
 import 'package:tarnobrzeg112/widgets/glass_panel.dart';
 import 'package:tarnobrzeg112/widgets/tbg_logo.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.redirectRoute});
+
+  final String? redirectRoute;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -24,6 +26,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _password = TextEditingController();
   bool _loading = false;
   bool _obscurePassword = true;
+  bool _rememberLogin = true;
+  bool _autoLoginTried = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadRememberedLogin());
+  }
 
   @override
   void dispose() {
@@ -90,6 +100,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             ),
                             validator: _passwordValidator,
                           ),
+                          const SizedBox(height: 8),
+                          CheckboxListTile(
+                            value: _rememberLogin,
+                            onChanged: (value) =>
+                                setState(() => _rememberLogin = value ?? true),
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: const Text('Zapamiętaj logowanie'),
+                            subtitle: const Text(
+                              'Na WWW sesja zostaje zapamiętana przez Firebase.',
+                            ),
+                          ),
                           const SizedBox(height: 18),
                           FilledButton.icon(
                             onPressed: _loading ? null : _submit,
@@ -145,9 +167,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       await ref
           .read(authRepositoryProvider)
           .signIn(login: _login.text, password: _password.text);
+      await _storeRememberedLogin();
       if (!mounted) return;
       ref.invalidate(authStateProvider);
       ref.invalidate(currentAppUserProvider);
+      final pendingRoute = ref.read(pendingNavigationRouteProvider);
+      final targetRoute = pendingRoute ?? _redirectRouteFromUrl();
+      if (targetRoute != null) {
+        ref.read(pendingNavigationRouteProvider.notifier).state = targetRoute;
+        debugPrint('AUTH DEBUG pending redirect=$targetRoute');
+      }
       context.go(RoutePaths.loading);
     } on Object catch (error) {
       if (!mounted) return;
@@ -166,28 +195,63 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  Future<void> _loadRememberedLogin() async {
+    if (_autoLoginTried || _loading) return;
+    _autoLoginTried = true;
+    final prefs = await loadLocalPreferences();
+    final remember = prefs.getBool('auth.rememberLogin') ?? true;
+    final login = prefs.getString('auth.login') ?? '';
+    final password = prefs.getString('auth.password') ?? '';
+    if (!mounted) return;
+    setState(() {
+      _rememberLogin = remember;
+      _login.text = login;
+      _password.text = password;
+    });
+    if (remember && login.isNotEmpty && password.isNotEmpty) {
+      await _submit();
+    }
+  }
+
+  Future<void> _storeRememberedLogin() async {
+    final prefs = await loadLocalPreferences();
+    await prefs.setBool('auth.rememberLogin', _rememberLogin);
+    if (_rememberLogin) {
+      await prefs.setString('auth.login', _login.text.trim());
+      await prefs.setString('auth.password', _password.text);
+    } else {
+      await prefs.remove('auth.login');
+      await prefs.remove('auth.password');
+    }
+  }
+
   String _errorMessage(Object error) {
-    final normalizedLogin = TextUtils.normalizeLogin(_login.text);
-    final authEmail = AuthRepository.technicalEmailForLogin(normalizedLogin);
     if (error is FirebaseAuthException) {
-      return 'Nie udało się zalogować. authEmail=$authEmail Firebase UID=- '
-          'accountStatus=- role=- FirebaseAuthException.code=${error.code}';
+      return switch (error.code) {
+        'invalid-credential' ||
+        'wrong-password' ||
+        'user-not-found' => 'Nieprawidłowy login lub hasło',
+        'network-request-failed' =>
+          'Brak połączenia z internetem. Spróbuj ponownie.',
+        _ => 'Nie udało się zalogować. Spróbuj ponownie.',
+      };
     }
     final message = error.toString();
     if (message.contains('invalid-credential') ||
-        message.contains('wrong-password')) {
-      return 'Nie udało się zalogować: nieprawidłowy login lub hasło. '
-          'authEmail=$authEmail Firebase UID=- accountStatus=- role=- '
-          'FirebaseAuthException.code=invalid-credential';
-    }
-    if (message.contains('user-not-found')) {
-      return 'Nie udało się zalogować: konto nie istnieje w Firebase Auth. '
-          'authEmail=$authEmail Firebase UID=- accountStatus=- role=- '
-          'FirebaseAuthException.code=user-not-found';
+        message.contains('wrong-password') ||
+        message.contains('user-not-found')) {
+      return 'Nieprawidłowy login lub hasło';
     }
     if (message.contains('Nie znaleziono profilu Firestore dla UID')) {
       return message.replaceFirst('Bad state: ', '');
     }
-    return 'Nie udało się zalogować: ${message.replaceFirst('Bad state: ', '')}';
+    return 'Nie udało się zalogować. Spróbuj ponownie.';
+  }
+
+  String? _redirectRouteFromUrl() {
+    final route = widget.redirectRoute ?? Uri.base.queryParameters['redirect'];
+    if (route == null || route.trim().isEmpty) return null;
+    if (!route.startsWith('/')) return null;
+    return route;
   }
 }

@@ -17,18 +17,23 @@ import 'package:tarnobrzeg112/widgets/user_avatar.dart';
 
 enum _UserFilter {
   all('Wszyscy'),
+  osp('OSP'),
+  informator('Informator'),
   active('Aktywne'),
   pending('Oczekujące'),
   blocked('Zablokowane'),
-  admins('Admini'),
-  moderators('Moderatorzy');
+  admins('Administrator'),
+  moderators('Moderator'),
+  muted('Wyciszeni');
 
   const _UserFilter(this.label);
   final String label;
 }
 
 class UsersManagementScreen extends ConsumerStatefulWidget {
-  const UsersManagementScreen({super.key});
+  const UsersManagementScreen({this.initialFilter, super.key});
+
+  final String? initialFilter;
 
   @override
   ConsumerState<UsersManagementScreen> createState() =>
@@ -45,6 +50,7 @@ class _UsersManagementScreenState extends ConsumerState<UsersManagementScreen> {
   @override
   void initState() {
     super.initState();
+    _filter = _filterFromWire(widget.initialFilter);
     _scrollController.addListener(_loadMoreIfNeeded);
   }
 
@@ -59,9 +65,11 @@ class _UsersManagementScreenState extends ConsumerState<UsersManagementScreen> {
   Widget build(BuildContext context) {
     final pendingCount =
         ref.watch(pendingUsersProvider).asData?.value.length ?? 0;
-    final usersStream = ref
-        .watch(usersRepositoryProvider)
-        .watchUsers(limit: _limit);
+    final stats = ref.watch(userStatsProvider).asData?.value;
+    final repository = ref.watch(usersRepositoryProvider);
+    final usersStream = _filter == _UserFilter.pending
+        ? repository.watchPendingUsers(limit: _limit)
+        : repository.watchUsers(limit: _limit);
     return AppScaffold(
       title: 'Użytkownicy',
       actions: [
@@ -98,6 +106,7 @@ class _UsersManagementScreenState extends ConsumerState<UsersManagementScreen> {
           final filtered = _applyFilters(loaded);
           return Column(
             children: [
+              _UsersStatsBar(stats: stats, pendingCount: pendingCount),
               _FiltersBar(
                 filter: _filter,
                 unitFilter: _unitFilter,
@@ -145,6 +154,8 @@ class _UsersManagementScreenState extends ConsumerState<UsersManagementScreen> {
     return users.where((user) {
       final matchesFilter = switch (_filter) {
         _UserFilter.all => true,
+        _UserFilter.osp => user.unitType == UnitType.osp,
+        _UserFilter.informator => user.unitType == UnitType.informator,
         _UserFilter.active => user.accountStatus == AccountStatus.active,
         _UserFilter.pending => user.accountStatus == AccountStatus.pending,
         _UserFilter.blocked =>
@@ -152,6 +163,7 @@ class _UsersManagementScreenState extends ConsumerState<UsersManagementScreen> {
               user.accountStatus == AccountStatus.suspended,
         _UserFilter.admins => user.role == UserRole.admin,
         _UserFilter.moderators => user.role == UserRole.moderator,
+        _UserFilter.muted => user.isMuted,
       };
       final matchesUnit =
           _unitFilter == null ||
@@ -187,6 +199,54 @@ class _UsersManagementScreenState extends ConsumerState<UsersManagementScreen> {
     if (_limit < 1000 && position.pixels > position.maxScrollExtent - 600) {
       setState(() => _limit += 50);
     }
+  }
+
+  _UserFilter _filterFromWire(String? value) {
+    return switch (value) {
+      'osp' => _UserFilter.osp,
+      'informator' => _UserFilter.informator,
+      'active' => _UserFilter.active,
+      'pending' => _UserFilter.pending,
+      'blocked' => _UserFilter.blocked,
+      'admins' => _UserFilter.admins,
+      'moderators' => _UserFilter.moderators,
+      'muted' => _UserFilter.muted,
+      _ => _UserFilter.all,
+    };
+  }
+}
+
+class _UsersStatsBar extends StatelessWidget {
+  const _UsersStatsBar({required this.stats, required this.pendingCount});
+
+  final UserStats? stats;
+  final int pendingCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      ('Wszyscy użytkownicy', stats?.total ?? 0, Icons.groups_outlined),
+      ('Do zatwierdzenia', stats?.pending ?? pendingCount, Icons.hourglass_top),
+      ('Aktywni', stats?.active ?? 0, Icons.verified_outlined),
+      ('Zablokowani', stats?.blocked ?? 0, Icons.block),
+      ('Wyciszeni', stats?.muted ?? 0, Icons.volume_off_outlined),
+    ];
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+      child: Row(
+        children: [
+          for (final item in items)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Chip(
+                avatar: Icon(item.$3, size: 18),
+                label: Text('${item.$1}: ${item.$2}'),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -291,12 +351,24 @@ class _UserCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
       child: ExpansionTile(
-        leading: UserAvatar(user: user, radius: 22),
-        title: Text(user.publicName),
-        subtitle: Text('${user.login} • ${user.nickname} • ${user.unitName}'),
-        trailing: AccountStatusBadge(user.accountStatus),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        visualDensity: VisualDensity.compact,
+        leading: UserAvatar(user: user, radius: 22),
+        title: Text(
+          user.nickname.trim().isEmpty ? user.displayName : user.nickname,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text(
+          _userSubtitle(user),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: AccountStatusBadge(user.accountStatus),
         children: [
           Wrap(
             spacing: 8,
@@ -355,6 +427,21 @@ class _UserCard extends ConsumerWidget {
                 onPressed: () => AdminActions.mute(ref, context, user),
                 child: const Text('Wycisz 24h'),
               ),
+              OutlinedButton.icon(
+                onPressed: () => AdminActions.resetPassword(ref, context, user),
+                icon: const Icon(Icons.password_outlined),
+                label: const Text('Resetuj hasło'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => AdminActions.deleteUser(ref, context, user),
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('Usuń użytkownika'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _showFullNameDialog(context, ref),
+                icon: const Icon(Icons.badge_outlined),
+                label: const Text('Zmień imię i nazwisko'),
+              ),
               if (user.isMuted)
                 OutlinedButton(
                   onPressed: () => AdminActions.unmute(ref, context, user),
@@ -396,6 +483,70 @@ class _UserCard extends ConsumerWidget {
     );
   }
 
+  String _userSubtitle(AppUser user) {
+    final unit = user.unitName.trim();
+    final type = user.unitType.label;
+    if (unit.isEmpty ||
+        user.unitType == UnitType.informator ||
+        user.unitType == UnitType.media) {
+      return type;
+    }
+    return '$type · $unit';
+  }
+
+  Future<void> _showFullNameDialog(BuildContext context, WidgetRef ref) async {
+    final actor = ref.read(currentAppUserProvider).asData?.value;
+    if (actor == null) return;
+    final fullName = TextEditingController(text: user.fullName);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Imię i nazwisko'),
+        content: TextField(
+          controller: fullName,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            labelText: 'Imię i nazwisko',
+            helperText: 'Wymagane co najmniej dwa wyrazy',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Anuluj'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final parts = fullName.text
+                  .trim()
+                  .replaceAll(RegExp(r'\s+'), ' ')
+                  .split(' ')
+                  .where((part) => part.isNotEmpty)
+                  .toList();
+              if (parts.length < 2) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Wpisz imię i nazwisko.')),
+                );
+                return;
+              }
+              await ref
+                  .read(moderationRepositoryProvider)
+                  .updateUserFullName(
+                    actor: actor,
+                    target: user,
+                    firstName: parts.first,
+                    lastName: parts.skip(1).join(' '),
+                  );
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Zapisz'),
+          ),
+        ],
+      ),
+    );
+    fullName.dispose();
+  }
+
   Future<void> _showModeratorPermissionsDialog(
     BuildContext context,
     WidgetRef ref,
@@ -423,13 +574,44 @@ class _UserCard extends ConsumerWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Dostęp do kanałów',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  checkbox('channelPsp', 'PSP'),
+                  checkbox('channelPolicja', 'Policja'),
+                  checkbox('channelMedycy', 'Medycy'),
+                  checkbox('channelMedia', 'Media'),
+                  const Divider(),
                   checkbox('viewExtraChats', 'Widoczność wybranych czatów'),
                   checkbox('viewExtraUnits', 'Widoczność wybranych jednostek'),
+                  checkbox('manageUsers', 'Zarządzanie użytkownikami'),
+                  checkbox(
+                    'manageChatMembers',
+                    'Dodawanie i usuwanie członków czatów',
+                  ),
                   checkbox('moderateChats', 'Moderowanie wybranych czatów'),
                   checkbox('muteUsers', 'Wyciszanie użytkowników'),
+                  checkbox('unmuteUsers', 'Cofanie wyciszeń'),
+                  checkbox('manageEvents', 'Wydarzenia'),
+                  checkbox('manageAnnouncements', 'Komunikaty'),
                   checkbox('recallMessages', 'Cofanie wiadomości'),
+                  checkbox('deleteMessages', 'Usuwanie wiadomości'),
+                  checkbox('editMessages', 'Edycja wiadomości'),
                   checkbox('approveAccounts', 'Akceptowanie kont'),
                   checkbox('accessLogs', 'Dostęp do logów'),
+                  checkbox('reports', 'Raporty'),
+                  checkbox(
+                    'allowScreenshots',
+                    'Zezwól moderatorowi wykonywać zrzuty',
+                  ),
+                  checkbox('serviceUnitsAccess', 'Dostęp do jednostek'),
+                  checkbox('extraFeatures', 'Dodatkowe funkcje'),
                 ],
               ),
             ),
@@ -583,7 +765,7 @@ class _InfoGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final rows = [
       ('Login', user.login),
-      ('Imię i nazwisko', user.fullName),
+      ('Imię i nazwisko', _fullNameValue(user)),
       ('Pseudonim', user.nickname),
       ('Telefon', user.phoneNumberOrDash),
       ('Województwo', user.voivodeship),
@@ -619,4 +801,10 @@ class _InfoGrid extends StatelessWidget {
       ],
     );
   }
+}
+
+String _fullNameValue(AppUser user) {
+  return user.hasFullName
+      ? user.fullName
+      : 'Brak imienia i nazwiska — wymagane uzupełnienie';
 }

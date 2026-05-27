@@ -5,6 +5,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:tarnobrzeg112/repositories/auth_repository.dart';
 import 'package:tarnobrzeg112/repositories/chat_repository.dart';
+import 'package:tarnobrzeg112/repositories/events_repository.dart';
 import 'package:tarnobrzeg112/repositories/moderation_repository.dart';
 import 'package:tarnobrzeg112/repositories/notifications_repository.dart';
 import 'package:tarnobrzeg112/repositories/private_chat_repository.dart';
@@ -74,6 +75,13 @@ final notificationsRepositoryProvider = Provider<NotificationsRepository>((
   ref,
 ) {
   return NotificationsRepository(ref.watch(firestoreProvider));
+});
+
+final eventsRepositoryProvider = Provider<EventsRepository>((ref) {
+  return EventsRepository(
+    ref.watch(firestoreProvider),
+    ref.watch(storageServiceProvider),
+  );
 });
 
 final moderationRepositoryProvider = Provider<ModerationRepository>((ref) {

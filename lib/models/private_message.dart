@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tarnobrzeg112/utils/date_time_utils.dart';
+import 'package:tarnobrzeg112/utils/text_utils.dart';
 
 class PrivateMessage {
   const PrivateMessage({
@@ -46,16 +47,16 @@ class PrivateMessage {
     required String fallbackId,
   }) {
     return PrivateMessage(
-      id: (map['id'] as String?) ?? fallbackId,
-      chatId: (map['chatId'] as String?) ?? '',
-      senderId: (map['senderId'] as String?) ?? '',
-      senderDisplayName: (map['senderDisplayName'] as String?) ?? '',
+      id: _string(map['id'], fallback: fallbackId),
+      chatId: _string(map['chatId']),
+      senderId: _string(map['senderId']),
+      senderDisplayName: _text(map['senderDisplayName']),
       createdAt: DateTimeUtils.fromJson(map['createdAt']) ?? DateTime.now(),
-      text: (map['text'] as String?) ?? '',
-      imageUrl: map['imageUrl'] as String?,
-      readBy: List<String>.from((map['readBy'] as List?) ?? const []),
+      text: _text(map['text']),
+      imageUrl: _nullableString(map['imageUrl']),
+      readBy: _stringList(map['readBy']),
       reactions: _reactionsFromMap(map['reactions']),
-      deleted: (map['deleted'] as bool?) ?? false,
+      deleted: _bool(map['deleted']),
     );
   }
 
@@ -68,10 +69,40 @@ class PrivateMessage {
   static Map<String, List<String>> _reactionsFromMap(Object? value) {
     if (value is! Map) return const {};
     return value.map(
-      (key, users) => MapEntry(
-        key.toString(),
-        List<String>.from((users as List?) ?? const []),
-      ),
+      (key, users) => MapEntry(key.toString(), _stringList(users)),
     );
   }
+}
+
+String _string(Object? value, {String fallback = ''}) {
+  if (value == null) return fallback;
+  if (value is String) return value;
+  return value.toString();
+}
+
+String _text(Object? value, {String fallback = ''}) {
+  return TextUtils.repairPolishText(_string(value, fallback: fallback));
+}
+
+String? _nullableString(Object? value) {
+  final text = _string(value).trim();
+  return text.isEmpty ? null : text;
+}
+
+bool _bool(Object? value) {
+  if (value is bool) return value;
+  if (value is String) return value.toLowerCase() == 'true';
+  return false;
+}
+
+List<String> _stringList(Object? value) {
+  if (value is List) {
+    return value
+        .where((item) => item != null)
+        .map((item) => item.toString())
+        .where((item) => item.trim().isNotEmpty)
+        .toList();
+  }
+  if (value is String && value.trim().isNotEmpty) return [value.trim()];
+  return const [];
 }

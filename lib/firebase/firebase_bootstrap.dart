@@ -1,6 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
-import 'package:tarnobrzeg112/firebase/firebase_options.dart';
+import 'package:tarnobrzeg112/firebase_options.dart';
 
 class FirebaseBootstrap {
   const FirebaseBootstrap._();

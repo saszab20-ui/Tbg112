@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/utils/date_time_utils.dart';
+import 'package:tarnobrzeg112/utils/text_utils.dart';
 
 class UnitModel {
   const UnitModel({
@@ -45,12 +46,16 @@ class UnitModel {
   factory UnitModel.fromMap(Map<String, Object?> map, {String? fallbackId}) {
     return UnitModel(
       id: (map['id'] as String?) ?? fallbackId ?? '',
-      name: (map['name'] as String?) ?? '',
+      name: TextUtils.repairPolishText((map['name'] as String?) ?? ''),
       type: UnitType.fromWire(map['type'] as String?),
-      voivodeship: (map['voivodeship'] as String?) ?? '',
-      county: (map['county'] as String?) ?? '',
+      voivodeship: TextUtils.repairPolishText(
+        (map['voivodeship'] as String?) ?? '',
+      ),
+      county: TextUtils.repairPolishText((map['county'] as String?) ?? ''),
       createdAt: DateTimeUtils.fromJson(map['createdAt']) ?? DateTime.now(),
-      description: (map['description'] as String?) ?? '',
+      description: TextUtils.repairPolishText(
+        (map['description'] as String?) ?? '',
+      ),
       memberIds: List<String>.from((map['memberIds'] as List?) ?? const []),
       moderatorIds: List<String>.from(
         (map['moderatorIds'] as List?) ?? const [],

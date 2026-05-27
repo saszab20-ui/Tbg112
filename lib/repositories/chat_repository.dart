@@ -8,6 +8,7 @@ import 'package:tarnobrzeg112/models/app_user.dart';
 import 'package:tarnobrzeg112/models/chat_message.dart';
 import 'package:tarnobrzeg112/models/pinned_message.dart';
 import 'package:tarnobrzeg112/models/report_model.dart';
+import 'package:tarnobrzeg112/models/typing_user.dart';
 import 'package:tarnobrzeg112/services/storage_service.dart';
 import 'package:tarnobrzeg112/utils/text_utils.dart';
 import 'package:uuid/uuid.dart';
@@ -50,6 +51,47 @@ class ChatRepository {
         );
   }
 
+  Stream<DateTime?> watchLastReadAt({
+    required ChatScope scope,
+    required String chatId,
+    required String uid,
+  }) {
+    final canonicalChatId = _canonicalChatId(scope, chatId);
+    return _chatRef(
+      scope,
+      canonicalChatId,
+    ).collection('reads').doc(uid).snapshots().map((snapshot) {
+      final value = snapshot.data()?['lastReadAt'];
+      return value is Timestamp ? value.toDate() : null;
+    });
+  }
+
+  Future<void> markRead({
+    required ChatScope scope,
+    required String chatId,
+    required String uid,
+    String? messageId,
+  }) async {
+    final canonicalChatId = _canonicalChatId(scope, chatId);
+    final chatRef = _chatRef(scope, canonicalChatId);
+    final batch = _firestore.batch();
+    batch.set(chatRef.collection('reads').doc(uid), {
+      'uid': uid,
+      'chatId': canonicalChatId,
+      'lastReadMessageId': messageId,
+      'lastReadAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    batch.set(chatRef, {
+      'deliveredReceipts.$uid': FieldValue.serverTimestamp(),
+      'readReceipts.$uid': FieldValue.serverTimestamp(),
+      'lastReadMessageId.$uid': messageId,
+      'unreadCount.$uid': 0,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    await batch.commit();
+  }
+
   Stream<List<PinnedMessage>> watchPinnedMessages({
     required ChatScope scope,
     required String chatId,
@@ -75,6 +117,7 @@ class ChatRepository {
     XFile? video,
     PlatformFile? voice,
     PlatformFile? file,
+    List<String> mentionIds = const [],
     ChatMessage? replyTo,
   }) async {
     if (!sender.canWrite) {
@@ -177,22 +220,59 @@ class ChatRepository {
       if (bytes == null) {
         throw StateError('Nie udało się odczytać pliku.');
       }
-      fileUrl = await _storageService.uploadChatFile(
-        chatPath: '${scope.wireName}/$canonicalChatId',
-        fileName: file.name,
-        bytes: bytes,
-        contentType: _contentTypeForFile(file),
-      );
-      mediaType = ChatMediaType.file;
-      attachments.add(
-        MessageAttachment(
-          url: fileUrl,
-          mediaType: ChatMediaType.file,
+      final contentType = _contentTypeForFile(file);
+      if (_isImageFile(file)) {
+        imageUrl = await _storageService.uploadChatImageBytes(
+          chatPath: '${scope.wireName}/$canonicalChatId',
           fileName: file.name,
-          contentType: _contentTypeForFile(file),
-          sizeBytes: file.size,
-        ),
-      );
+          bytes: bytes,
+          contentType: contentType,
+        );
+        mediaType = ChatMediaType.image;
+        attachments.add(
+          MessageAttachment(
+            url: imageUrl,
+            mediaType: ChatMediaType.image,
+            fileName: file.name,
+            contentType: contentType,
+            sizeBytes: file.size,
+          ),
+        );
+      } else if (_isAudioFile(file)) {
+        voiceUrl = await _storageService.uploadChatVoice(
+          chatPath: '${scope.wireName}/$canonicalChatId',
+          fileName: file.name,
+          bytes: bytes,
+          contentType: contentType,
+        );
+        mediaType = ChatMediaType.voice;
+        attachments.add(
+          MessageAttachment(
+            url: voiceUrl,
+            mediaType: ChatMediaType.voice,
+            fileName: file.name,
+            contentType: contentType,
+            sizeBytes: file.size,
+          ),
+        );
+      } else {
+        fileUrl = await _storageService.uploadChatFile(
+          chatPath: '${scope.wireName}/$canonicalChatId',
+          fileName: file.name,
+          bytes: bytes,
+          contentType: contentType,
+        );
+        mediaType = ChatMediaType.file;
+        attachments.add(
+          MessageAttachment(
+            url: fileUrl,
+            mediaType: ChatMediaType.file,
+            fileName: file.name,
+            contentType: contentType,
+            sizeBytes: file.size,
+          ),
+        );
+      }
     }
 
     final participants = await _participantsFor(
@@ -216,25 +296,60 @@ class ChatRepository {
       mediaType: mediaType,
       replyToMessageId: replyTo?.id,
       replyPreview: replyTo?.userVisibleText,
+      mentions: mentionIds
+          .where((uid) => uid.isNotEmpty && uid != sender.uid)
+          .toSet()
+          .toList(),
       createdAt: DateTime.now(),
       visibleTo: participants,
       participants: participants,
     );
 
-    final batch = _firestore.batch();
-    batch.set(
-      _chatRef(scope, canonicalChatId),
-      _chatMetadata(
-        scope: scope,
-        chatId: canonicalChatId,
-        actor: sender,
-        participants: participants,
-        lastMessage: text.trim().isEmpty ? mediaType.label : text.trim(),
-      ),
-      SetOptions(merge: true),
+    final chatUpdate = _messageChatUpdate(
+      scope: scope,
+      chatId: canonicalChatId,
+      actor: sender,
+      participants: participants,
+      lastMessage: text.trim().isEmpty ? mediaType.label : text.trim(),
     );
-    batch.set(_messagesRef(scope, canonicalChatId).doc(id), message.toMap());
-    await batch.commit();
+
+    final unreadUpdate = <String, Object>{};
+    if (scope == ChatScope.group || scope == ChatScope.private) {
+      final chatDoc = await _chatRef(scope, canonicalChatId).get();
+      final joinedMap = chatDoc.data()?['joinedAt'];
+      final clearedMap = chatDoc.data()?['clearedAt'];
+      for (final uid in participants.where((id) => id != sender.uid)) {
+        final joinedTs = joinedMap is Map ? joinedMap[uid] : null;
+        DateTime? joinedDate;
+        if (joinedTs is Timestamp) joinedDate = joinedTs.toDate();
+        if (joinedDate == null) continue;
+        if (!message.createdAt.isAfter(joinedDate)) continue;
+        final clearedTs = clearedMap is Map ? clearedMap[uid] : null;
+        if (clearedTs is Timestamp &&
+            message.createdAt.isBefore(clearedTs.toDate())) {
+          continue;
+        }
+        unreadUpdate['unreadCount.$uid'] = FieldValue.increment(1);
+      }
+    }
+
+    await _messagesRef(scope, canonicalChatId).doc(id).set(message.toMap());
+
+    await _chatRef(
+      scope,
+      canonicalChatId,
+    ).set(chatUpdate, SetOptions(merge: true));
+
+    if (unreadUpdate.isNotEmpty) {
+      try {
+        await _chatRef(
+          scope,
+          canonicalChatId,
+        ).set(unreadUpdate, SetOptions(merge: true));
+      } on Object {
+        // Unread counters are secondary metadata; the message itself is saved.
+      }
+    }
   }
 
   Future<void> toggleReaction({
@@ -267,11 +382,15 @@ class ChatRepository {
       if (!actor.isModerator && actor.uid != message.senderId) {
         throw StateError('Możesz cofnąć tylko własną wiadomość.');
       }
+      // When retracting a message, mark it deleted and decrement unread
+      // counters for participants who were counted for this message.
       transaction.update(ref, {
         'isDeleted': true,
         'deleted': true,
         'deletedAt': FieldValue.serverTimestamp(),
         'deletedBy': actor.uid,
+        'deletedByName': actor.publicName,
+        'originalMessage': message.adminVisibleText,
         'originalTextForAdmin': message.adminVisibleText,
         'originalAttachmentsForAdmin': message.attachments
             .map((attachment) => attachment.toMap())
@@ -281,6 +400,65 @@ class ChatRepository {
         'fileUrl': null,
         'fileName': null,
         'attachments': <Map<String, Object?>>[],
+      });
+      try {
+        final chatRef = _chatRef(message.scope, message.chatId);
+        final chatSnapshot = await transaction.get(chatRef);
+        final joinedMap = chatSnapshot.data()?['joinedAt'];
+        for (final uid in message.participants.where(
+          (id) => id != message.senderId,
+        )) {
+          final joinedTs = joinedMap is Map ? joinedMap[uid] : null;
+          DateTime? joinedDate;
+          if (joinedTs is Timestamp) joinedDate = joinedTs.toDate();
+          if (joinedDate == null) continue;
+          if (!message.createdAt.isAfter(joinedDate)) continue;
+          transaction.update(chatRef, {
+            'unreadCount.$uid': FieldValue.increment(-1),
+          });
+        }
+      } on Object catch (_) {
+        // best-effort: if we fail to adjust unread counters, don't block deletion
+      }
+    });
+  }
+
+  Future<void> editMessage({
+    required ChatScope scope,
+    required String chatId,
+    required ChatMessage message,
+    required AppUser actor,
+    required String newText,
+  }) async {
+    final cleanText = newText.trim();
+    if (cleanText.isEmpty) {
+      throw StateError('Wiadomość po edycji nie może być pusta.');
+    }
+    final canonicalChatId = _canonicalChatId(scope, chatId);
+    final ref = _messagesRef(scope, canonicalChatId).doc(message.id);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists) {
+        throw StateError('Nie znaleziono wiadomości do edycji.');
+      }
+      final current = ChatMessage.fromSnapshot(snapshot);
+      if (current.isDeleted) {
+        throw StateError('Nie można edytować cofniętej wiadomości.');
+      }
+      if (actor.uid != current.senderId && !actor.isAdmin) {
+        throw StateError('Możesz edytować tylko własną wiadomość.');
+      }
+      transaction.update(ref, {
+        'text': cleanText,
+        'editedAt': FieldValue.serverTimestamp(),
+        'editHistory': FieldValue.arrayUnion([
+          {
+            'oldText': current.text,
+            'editedBy': actor.uid,
+            'editedByLogin': actor.login,
+            'editedAt': Timestamp.fromDate(DateTime.now()),
+          },
+        ]),
       });
     });
   }
@@ -350,8 +528,25 @@ class ChatRepository {
     required String chatId,
     required AppUser user,
     required bool typing,
-  }) {
-    return _chatRef(scope, chatId).collection('typing').doc(user.uid).set({
+  }) async {
+    final canonicalChatId = _canonicalChatId(scope, chatId);
+    final chatRef = _chatRef(scope, canonicalChatId);
+    final snapshot = await chatRef.get();
+    if (!snapshot.exists) {
+      await chatRef.set(
+        _chatShellMetadata(
+          scope: scope,
+          chatId: canonicalChatId,
+          actor: user,
+          participants: await _participantsFor(
+            scope: scope,
+            chatId: canonicalChatId,
+          ),
+        ),
+        SetOptions(merge: true),
+      );
+    }
+    return chatRef.collection('typing').doc(user.uid).set({
       'uid': user.uid,
       'displayName': user.publicName,
       'typing': typing,
@@ -359,17 +554,45 @@ class ChatRepository {
     }, SetOptions(merge: true));
   }
 
+  Stream<List<TypingUser>> watchTyping({
+    required ChatScope scope,
+    required String chatId,
+    required String currentUserId,
+  }) {
+    return _chatRef(scope, chatId).collection('typing').snapshots().map((
+      snapshot,
+    ) {
+      final now = DateTime.now();
+      return snapshot.docs
+          .where((doc) {
+            final data = doc.data();
+            if (doc.id == currentUserId || data['typing'] != true) {
+              return false;
+            }
+            final updatedAt = data['updatedAt'];
+            if (updatedAt is! Timestamp) return true;
+            return now.difference(updatedAt.toDate()).inSeconds < 12;
+          })
+          .map(TypingUser.fromSnapshot)
+          .toList()
+        ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    });
+  }
+
   Stream<List<ChatMessage>> watchDeletedMessages() {
-    return _firestore
-        .collectionGroup('messages')
-        .where('isDeleted', isEqualTo: true)
-        .limit(100)
-        .snapshots()
-        .map(
-          (snapshot) =>
-              snapshot.docs.map(ChatMessage.fromSnapshot).toList()
-                ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
-        );
+    return _firestore.collectionGroup('messages').limit(300).snapshots().map((
+      snapshot,
+    ) {
+      final messages =
+          snapshot.docs
+              .map(ChatMessage.fromSnapshot)
+              .where(
+                (message) => message.isDeleted || message.deletedAt != null,
+              )
+              .toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return messages;
+    });
   }
 
   Future<List<String>> _participantsFor({
@@ -378,11 +601,8 @@ class ChatRepository {
   }) async {
     if (scope == ChatScope.private || scope == ChatScope.group) {
       final chat = await _chats.doc(chatId).get();
-      return List<String>.from(
-        (chat.data()?['participants'] as List?) ??
-            (chat.data()?['participantIds'] as List?) ??
-            const [],
-      );
+      final data = chat.data();
+      return _stringList(data?['participants'] ?? data?['participantIds']);
     }
     return const [];
   }
@@ -417,13 +637,92 @@ class ChatRepository {
 
     if (scope == ChatScope.unit) {
       final unitId = _unitSlug(chatId);
+      final serviceName = _serviceChannelName(unitId);
       final actorUnitName = actor.unitName.trim();
       final useActorUnitName =
           actorUnitName.isNotEmpty &&
           TextUtils.normalizeId(actorUnitName) == unitId;
-      final unitName = useActorUnitName
-          ? actorUnitName
-          : _prettyUnitName(unitId);
+      final unitName =
+          serviceName ??
+          (useActorUnitName ? actorUnitName : _prettyUnitName(unitId));
+      return {
+        ...base,
+        'name': unitName,
+        'unitName': unitName,
+        'unitId': unitId,
+        'participants': <String>[],
+        'participantIds': <String>[],
+        'participantsMode': 'unitMembers',
+        'createdBy': 'system',
+      };
+    }
+
+    return {
+      ...base,
+      'participants': participants,
+      'participantIds': participants,
+    };
+  }
+
+  Map<String, Object?> _messageChatUpdate({
+    required ChatScope scope,
+    required String chatId,
+    required AppUser actor,
+    required List<String> participants,
+    required String lastMessage,
+  }) {
+    if (scope == ChatScope.private || scope == ChatScope.group) {
+      return {
+        'updatedAt': FieldValue.serverTimestamp(),
+        'lastMessage': lastMessage,
+        'lastMessageAt': FieldValue.serverTimestamp(),
+        'hiddenFor': FieldValue.arrayRemove(participants),
+      };
+    }
+    return _chatMetadata(
+      scope: scope,
+      chatId: chatId,
+      actor: actor,
+      participants: participants,
+      lastMessage: lastMessage,
+    );
+  }
+
+  Map<String, Object?> _chatShellMetadata({
+    required ChatScope scope,
+    required String chatId,
+    required AppUser actor,
+    required List<String> participants,
+  }) {
+    final base = <String, Object?>{
+      'id': chatId,
+      'type': scope.wireName,
+      'chatKind': scope.wireName,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'isArchived': false,
+    };
+
+    if (scope == ChatScope.global) {
+      return {
+        ...base,
+        'name': 'Czat główny',
+        'participants': <String>[],
+        'participantIds': <String>[],
+        'participantsMode': 'allActiveUsers',
+        'createdBy': 'system',
+      };
+    }
+
+    if (scope == ChatScope.unit) {
+      final unitId = _unitSlug(chatId);
+      final serviceName = _serviceChannelName(unitId);
+      final actorUnitName = actor.unitName.trim();
+      final useActorUnitName =
+          actorUnitName.isNotEmpty &&
+          TextUtils.normalizeId(actorUnitName) == unitId;
+      final unitName =
+          serviceName ??
+          (useActorUnitName ? actorUnitName : _prettyUnitName(unitId));
       return {
         ...base,
         'name': unitName,
@@ -450,7 +749,9 @@ class ChatRepository {
   }
 
   String _unitSlug(String chatId) {
-    return TextUtils.normalizeId(chatId.replaceFirst(RegExp('^unit[_-]'), ''));
+    final clean = chatId.replaceFirst(RegExp('^unit[_-]'), '').trim();
+    if (_serviceChannelName(clean) != null) return clean;
+    return TextUtils.normalizeId(clean);
   }
 
   String _prettyUnitName(String unitId) {
@@ -459,6 +760,20 @@ class ChatRepository {
         .where((part) => part.isNotEmpty)
         .map((part) => part.length <= 3 ? part.toUpperCase() : _titleCase(part))
         .join(' ');
+  }
+
+  String? _serviceChannelName(String unitId) {
+    return switch (unitId) {
+      'service_psp' => 'PSP',
+      'service-psp' => 'PSP',
+      'service_policja' => 'Policja',
+      'service-policja' => 'Policja',
+      'service_medycy' => 'Medycy',
+      'service-medycy' => 'Medycy',
+      'service_media' => 'Media',
+      'service-media' => 'Media',
+      _ => null,
+    };
   }
 
   String _titleCase(String value) {
@@ -480,6 +795,8 @@ class ChatRepository {
       'm4a' => 'audio/mp4',
       'mp3' => 'audio/mpeg',
       'wav' => 'audio/wav',
+      'aac' => 'audio/aac',
+      'ogg' => 'audio/ogg',
       'pdf' => 'application/pdf',
       'txt' => 'text/plain',
       'doc' => 'application/msword',
@@ -487,5 +804,33 @@ class ChatRepository {
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
       _ => fallback,
     };
+  }
+
+  bool _isImageFile(PlatformFile file) {
+    final contentType = _contentTypeForFile(file);
+    return contentType == 'image/jpeg' ||
+        contentType == 'image/png' ||
+        contentType == 'image/webp';
+  }
+
+  bool _isAudioFile(PlatformFile file) {
+    final contentType = _contentTypeForFile(file);
+    return contentType == 'audio/mp4' ||
+        contentType == 'audio/mpeg' ||
+        contentType == 'audio/wav' ||
+        contentType == 'audio/aac' ||
+        contentType == 'audio/ogg';
+  }
+
+  List<String> _stringList(Object? value) {
+    if (value is List) {
+      return value
+          .where((item) => item != null)
+          .map((item) => item.toString())
+          .where((item) => item.trim().isNotEmpty)
+          .toList();
+    }
+    if (value is String && value.trim().isNotEmpty) return [value.trim()];
+    return const [];
   }
 }

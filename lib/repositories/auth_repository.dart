@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -61,9 +59,9 @@ class AuthRepository {
     final normalizedLogin = TextUtils.normalizeLogin(login);
     final authEmail = technicalEmailForLogin(normalizedLogin);
     try {
-      debugPrint('AUTH DEBUG entered login=$normalizedLogin');
-      debugPrint('AUTH DEBUG generated email=$authEmail');
-      debugPrint(
+      _debug('AUTH DEBUG entered login=$normalizedLogin');
+      _debug('AUTH DEBUG generated email=$authEmail');
+      _debug(
         'Firebase signIn start login=$normalizedLogin authEmail=$authEmail',
       );
       final credential = await _auth.signInWithEmailAndPassword(
@@ -71,7 +69,7 @@ class AuthRepository {
         password: password,
       );
       final firebaseUser = credential.user;
-      debugPrint('AUTH DEBUG Firebase UID=${firebaseUser?.uid ?? '-'}');
+      _debug('AUTH DEBUG Firebase UID=${firebaseUser?.uid ?? '-'}');
       if (firebaseUser == null) {
         throw StateError(
           'Logowanie przerwane: Firebase Auth nie zwrócił UID. '
@@ -127,7 +125,7 @@ class AuthRepository {
       }
       rethrow;
     } on Object catch (error, stackTrace) {
-      debugPrint('Firebase signIn unexpected error: $error');
+      _debug('Firebase signIn unexpected error: $error');
       debugPrintStack(stackTrace: stackTrace);
       rethrow;
     }
@@ -172,41 +170,68 @@ class AuthRepository {
       'unitName': unitName,
       'updatedAt': FieldValue.serverTimestamp(),
     };
+    final userRef = _firestore
+        .collection(FirestoreCollections.users)
+        .doc(firebaseUser.uid);
+    final adminGuardProfile = {
+      'uid': firebaseUser.uid,
+      'login': login,
+      'authEmail': authEmail,
+      'accountStatus': AccountStatus.active.name,
+      'role': UserRole.admin.name,
+      'canWrite': true,
+      'blockedWrite': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
     if (AppConstants.devAdminMode) {
-      unawaited(
-        _firestore
-            .collection(FirestoreCollections.users)
-            .doc(firebaseUser.uid)
-            .set(adminProfile, SetOptions(merge: true))
-            .then(
-              (_) => debugPrint(
-                'AUTH DEBUG DEV_ADMIN_MODE wrote users/${firebaseUser.uid}',
-              ),
-            )
-            .catchError((Object error) {
-              debugPrint(
-                'AUTH DEBUG DEV_ADMIN_MODE Firestore write skipped: $error',
-              );
-            }),
-      );
+      try {
+        final existing = await userRef.get();
+        await userRef.set(
+          existing.exists ? adminGuardProfile : adminProfile,
+          SetOptions(merge: true),
+        );
+        final refreshed = await userRef.get();
+        if (refreshed.exists) {
+          return AppUser.fromSnapshot(refreshed).copyWith(
+            login: login,
+            email: authEmail,
+            role: UserRole.admin,
+            accountStatus: AccountStatus.active,
+            blockedWrite: false,
+          );
+        }
+      } on Object catch (error) {
+        _debug('AUTH DEBUG DEV_ADMIN_MODE Firestore write skipped: $error');
+      }
       return appUser;
     }
     try {
-      await _firestore
-          .collection(FirestoreCollections.users)
-          .doc(firebaseUser.uid)
-          .set(adminProfile, SetOptions(merge: true));
-      debugPrint(
+      final existing = await userRef.get();
+      await userRef.set(
+        existing.exists ? adminGuardProfile : adminProfile,
+        SetOptions(merge: true),
+      );
+      _debug(
         'AUTH DEBUG bootstrap admin profile written users/${firebaseUser.uid} '
         'accountStatus=active role=admin',
       );
+      final refreshed = await userRef.get();
+      if (refreshed.exists) {
+        return AppUser.fromSnapshot(refreshed).copyWith(
+          login: login,
+          email: authEmail,
+          role: UserRole.admin,
+          accountStatus: AccountStatus.active,
+          blockedWrite: false,
+        );
+      }
       return appUser;
     } on FirebaseException catch (error) {
-      debugPrint(
+      _debug(
         'AUTH DEBUG bootstrap admin write failed code=${error.code} '
         'message=${error.message}',
       );
-      debugPrint(
+      _debug(
         'AUTH DEBUG bootstrap admin continues locally authEmail=$authEmail '
         'Firebase UID=${firebaseUser.uid} accountStatus=active role=admin '
         'FirebaseException.code=${error.code}',
@@ -219,6 +244,9 @@ class AuthRepository {
     final normalizedLogin = TextUtils.normalizeLogin(data.login);
     if (normalizedLogin.length < 3) {
       throw StateError('Login musi mieć minimum 3 znaki.');
+    }
+    if (!isSuperAdminLogin(normalizedLogin)) {
+      _validateFullName(data.firstName, data.lastName);
     }
 
     final technicalEmail = technicalEmailForLogin(normalizedLogin);
@@ -274,10 +302,7 @@ class AuthRepository {
         DocumentReference<Map<String, dynamic>>? inviteRef;
         DocumentSnapshot<Map<String, dynamic>>? inviteSnapshot;
         final inviteCode = TextUtils.normalizeInviteCode(data.inviteCode);
-        if (!skipsInviteCode(normalizedLogin)) {
-          if (inviteCode.isEmpty) {
-            throw StateError('Podaj kod zaproszenia.');
-          }
+        if (!skipsInviteCode(normalizedLogin) && inviteCode.isNotEmpty) {
           inviteRef = _firestore
               .collection(FirestoreCollections.inviteCodes)
               .doc(inviteCode);
@@ -349,17 +374,29 @@ class AuthRepository {
             .doc(profileUnitId);
         final userMap = {
           ...appUser.toMap(),
-          'inviteCode': skipsInviteCode(normalizedLogin) ? null : inviteCode,
+          'inviteCode': inviteCode.isEmpty ? null : inviteCode,
           'bootstrapAdmin': shouldActivateSuperAdmin,
           'trustedAdminCandidate': isTrustedAdmin,
           'adminNotes': data.adminNotes.trim(),
           'requestedUnitType': data.unitType.name,
-          'requestedServiceType': data.unitType.label,
+          'requestedServiceType': data.unitType.badgeLabel,
           'requestedUnitName': data.unitName.trim(),
+          'phone': data.phoneNumber.trim(),
+          'displayName': appUser.displayName,
+          'serviceType': profileUnitType.badgeLabel,
+          'role': role.name,
+          'accountStatus': accountStatus.name,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'canWrite': accountStatus == AccountStatus.active,
+          'blockedWrite': blockedWrite,
+          'firstLoginTutorialCompleted': shouldActivateSuperAdmin,
         };
 
         transaction.set(userRef, userMap, SetOptions(merge: true));
-        if (profileUnitId.isNotEmpty && profileUnitType.hasOwnUnitChat) {
+        if (accountStatus == AccountStatus.active &&
+            profileUnitId.isNotEmpty &&
+            profileUnitType.hasOwnUnitChat) {
           transaction.set(unitRef, {
             'id': profileUnitId,
             'name': profileUnitName,
@@ -409,6 +446,19 @@ class AuthRepository {
         await createdUser.delete().catchError((Object _) {});
       }
       rethrow;
+    }
+  }
+
+  static void _validateFullName(String firstName, String lastName) {
+    final fullName = [
+      firstName,
+      lastName,
+    ].map((part) => part.trim()).where((part) => part.isNotEmpty).join(' ');
+    final parts = fullName.split(RegExp(r'\s+')).where((part) {
+      return part.trim().length >= 2;
+    }).toList();
+    if (fullName.length < 5 || parts.length < 2) {
+      throw StateError('Imię i nazwisko jest wymagane.');
     }
   }
 
@@ -559,37 +609,37 @@ class AuthRepository {
 
   Future<AppUser?> _loadProfileAfterAuth({required User? firebaseUser}) async {
     if (firebaseUser == null) return null;
-    debugPrint('AUTH DEBUG current UID=${firebaseUser.uid}');
+    _debug('AUTH DEBUG current UID=${firebaseUser.uid}');
     try {
       final uidSnapshot = await _firestore
           .collection(FirestoreCollections.users)
           .doc(firebaseUser.uid)
           .get();
-      debugPrint(
-        'AUTH DEBUG fetched document=users/${firebaseUser.uid} '
-        'exists=${uidSnapshot.exists} data=${uidSnapshot.data()}',
+      _debug(
+        'AUTH DEBUG fetched profile uid=${firebaseUser.uid} '
+        'exists=${uidSnapshot.exists}',
       );
       if (uidSnapshot.exists) {
         final appUser = AppUser.fromSnapshot(uidSnapshot);
-        debugPrint(
+        _debug(
           'AUTH DEBUG accountStatus=${appUser.accountStatus.name} '
           'role=${appUser.role.name}',
         );
         return appUser;
       }
     } on FirebaseException catch (error) {
-      debugPrint(
+      _debug(
         'UID profile after Auth skipped: code=${error.code} message=${error.message}',
       );
     } on Object catch (error, stackTrace) {
-      debugPrint('UID profile after Auth failed: $error');
+      _debug('UID profile after Auth failed: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
     return null;
   }
 
   void _debugFirebaseAuthException(String prefix, FirebaseAuthException error) {
-    debugPrint(
+    _debug(
       '$prefix: code=${error.code} message=${error.message} '
       'email=${error.email} credential=${error.credential}',
     );
@@ -602,10 +652,14 @@ class AuthRepository {
     required UserRole role,
     required AccountStatus accountStatus,
   }) {
-    debugPrint(
+    _debug(
       'AUTH DEBUG uid=$uid login=$login authEmail=$authEmail '
       'role=${role.name} accountStatus=${accountStatus.name}',
     );
+  }
+
+  void _debug(String message) {
+    if (kDebugMode) debugPrint(message);
   }
 
   Future<void> sendPasswordReset(String login) {
@@ -639,7 +693,15 @@ class AuthRepository {
       );
       await firebaseUser.reauthenticateWithCredential(credential);
       await firebaseUser.updatePassword(newPassword);
-      debugPrint(
+      await _firestore
+          .collection(FirestoreCollections.users)
+          .doc(firebaseUser.uid)
+          .set({
+            'mustChangePassword': false,
+            'mustSetPassword': false,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+      _debug(
         'AUTH DEBUG password changed uid=${firebaseUser.uid} '
         'login=$normalizedLogin authEmail=$authEmail',
       );
@@ -655,7 +717,7 @@ class AuthRepository {
 
   Future<void> signOut({String reason = 'manual'}) {
     final user = _auth.currentUser;
-    debugPrint(
+    _debug(
       'AUTH DEBUG signOut called reason=$reason uid=${user?.uid ?? '-'} '
       'email=${user?.email ?? '-'}',
     );

@@ -20,7 +20,7 @@ class GlobalChatScreen extends StatelessWidget {
         IconButton(
           tooltip: 'Ustawienia czatu',
           onPressed: () =>
-              context.go(RoutePaths.chatSettings(AppConstants.globalChatId)),
+              context.push(RoutePaths.chatSettings(AppConstants.globalChatId)),
           icon: const Icon(Icons.tune_outlined),
         ),
       ],

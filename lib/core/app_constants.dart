@@ -21,8 +21,9 @@ class AppConstants {
   static const maxImageUploadBytes = 8 * 1024 * 1024;
   static const maxFileUploadBytes = 20 * 1024 * 1024;
 
-  static const notificationChannelId = 'tbg112_messages';
-  static const notificationChannelName = 'Wiadomości Tarnobrzeg 112';
+  static const notificationChannelId = 'tbg112_chat_messages_v2';
+  static const notificationChannelName = 'Wiadomości czatu';
   static const notificationChannelDescription =
-      'Powiadomienia o czatach, ogłoszeniach i moderacji.';
+      'Głośne powiadomienia o nowych wiadomościach czatu.';
+  static const notificationSoundLoud = 'unique_sms';
 }

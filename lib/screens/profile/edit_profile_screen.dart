@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -20,6 +22,7 @@ class EditProfileScreen extends ConsumerStatefulWidget {
 }
 
 class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
+  final _fullName = TextEditingController();
   final _nickname = TextEditingController();
   final _phoneNumber = TextEditingController();
   final _description = TextEditingController();
@@ -30,6 +33,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
   @override
   void dispose() {
+    _fullName.dispose();
     _nickname.dispose();
     _phoneNumber.dispose();
     _description.dispose();
@@ -72,6 +76,18 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
               GlassPanel(
                 child: Column(
                   children: [
+                    if (!user.hasFullName) ...[
+                      TextFormField(
+                        controller: _fullName,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'Imię i nazwisko',
+                          helperText: 'Wymagane uzupełnienie danych konta',
+                          prefixIcon: Icon(Icons.badge_outlined),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     TextField(
                       controller: _nickname,
                       decoration: const InputDecoration(
@@ -105,6 +121,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                         _avatar == null ? 'Zmień avatar' : 'Avatar wybrany',
                       ),
                     ),
+                    if (_avatar != null) ...[
+                      const SizedBox(height: 10),
+                      _AvatarPreview(file: _avatar!),
+                    ],
                     const SizedBox(height: 18),
                     FilledButton.icon(
                       onPressed: _saving ? null : () => _save(user),
@@ -130,6 +150,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   void _initialize(AppUser user) {
     if (_initializedUid == user.uid) return;
     _initializedUid = user.uid;
+    _fullName.text = user.fullName;
     _nickname.text = user.nickname;
     _phoneNumber.text = user.phoneNumber;
     _description.text = user.description;
@@ -143,6 +164,10 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   Future<void> _save(AppUser user) async {
     setState(() => _saving = true);
     try {
+      final nameParts = _splitFullName(_fullName.text);
+      if (!user.hasFullName && nameParts == null) {
+        throw StateError('Wpisz imię i nazwisko.');
+      }
       await ref
           .read(usersRepositoryProvider)
           .updateEditableProfile(
@@ -150,6 +175,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
             nickname: _nickname.text,
             phoneNumber: _phoneNumber.text,
             description: _description.text,
+            firstName: nameParts?.first,
+            lastName: nameParts?.last,
             avatar: _avatar,
           );
       if (mounted) context.go(RoutePaths.profile);
@@ -163,5 +190,45 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  List<String>? _splitFullName(String value) {
+    final parts = value
+        .trim()
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .split(' ')
+        .where((part) => part.isNotEmpty)
+        .toList();
+    if (parts.length < 2) return null;
+    return [parts.first, parts.skip(1).join(' ')];
+  }
+}
+
+class _AvatarPreview extends StatelessWidget {
+  const _AvatarPreview({required this.file});
+
+  final XFile file;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: file.readAsBytes(),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: CircleAvatar(
+            radius: 34,
+            backgroundImage: bytes == null ? null : MemoryImage(bytes),
+            child: bytes == null
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : null,
+          ),
+        );
+      },
+    );
   }
 }

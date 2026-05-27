@@ -15,6 +15,7 @@ class UsersRepository {
 
   final FirebaseFirestore _firestore;
   final StorageService _storageService;
+  final Map<String, _PresenceWrite> _lastPresenceWrites = {};
 
   DocumentReference<Map<String, dynamic>> userRef(String uid) {
     return _firestore.collection(FirestoreCollections.users).doc(uid);
@@ -37,23 +38,24 @@ class UsersRepository {
     if (isStartAdmin) {
       unawaited(
         _writeStartAdminProfile(authUid).catchError((Object error) {
-          debugPrint(
-            'AUTH DEBUG provider bootstrap admin write failed UID=$authUid '
-            'error=$error',
-          );
+          if (kDebugMode) {
+            debugPrint(
+              'AUTH DEBUG provider bootstrap admin write failed UID=$authUid '
+              'error=$error',
+            );
+          }
         }),
       );
-      yield _startAdminFallback(authUid);
     }
     try {
       await for (final uidDoc in userRef(authUid).snapshots()) {
-        debugPrint('AUTH DEBUG current UID=$authUid');
-        debugPrint(
-          'AUTH DEBUG fetched document=users/$authUid '
-          'exists=${uidDoc.exists} data=${uidDoc.data()}',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            'AUTH DEBUG profile snapshot uid=$authUid exists=${uidDoc.exists}',
+          );
+        }
         if (!uidDoc.exists) {
-          debugPrint('AUTH DEBUG accountStatus=missing');
+          if (kDebugMode) debugPrint('AUTH DEBUG accountStatus=missing');
           if (isStartAdmin) {
             yield _startAdminFallback(authUid);
           } else {
@@ -62,21 +64,33 @@ class UsersRepository {
           continue;
         }
         final appUser = AppUser.fromSnapshot(uidDoc);
-        debugPrint(
-          'AUTH DEBUG accountStatus=${appUser.accountStatus.name} '
-          'role=${appUser.role.name}',
-        );
+        if (kDebugMode) {
+          debugPrint(
+            'AUTH DEBUG accountStatus=${appUser.accountStatus.name} '
+            'role=${appUser.role.name}',
+          );
+        }
         if (isStartAdmin) {
-          yield _startAdminFallback(authUid);
+          yield appUser.copyWith(
+            uid: authUid,
+            login: AppConstants.superAdminLogin,
+            email:
+                '${AppConstants.superAdminLogin}@${AppConstants.technicalEmailDomain}',
+            role: UserRole.admin,
+            accountStatus: AccountStatus.active,
+            blockedWrite: false,
+          );
           continue;
         }
         yield appUser;
       }
     } on FirebaseException catch (error) {
-      debugPrint(
-        'AUTH DEBUG profile stream failed UID=$authUid '
-        'FirebaseException.code=${error.code} message=${error.message}',
-      );
+      if (kDebugMode) {
+        debugPrint(
+          'AUTH DEBUG profile stream failed UID=$authUid '
+          'FirebaseException.code=${error.code} message=${error.message}',
+        );
+      }
       if (isStartAdmin) {
         yield _startAdminFallback(authUid);
       } else {
@@ -110,10 +124,41 @@ class UsersRepository {
     );
   }
 
-  Future<void> _writeStartAdminProfile(String authUid) {
+  Future<void> _writeStartAdminProfile(String authUid) async {
     final appUser = _startAdminFallback(authUid);
-    return userRef(authUid).set({
-      ...appUser.toMap(),
+    final ref = userRef(authUid);
+    final snapshot = await ref.get();
+    if (!snapshot.exists) {
+      await ref.set({
+        ...appUser.toMap(),
+        'uid': authUid,
+        'login': AppConstants.superAdminLogin,
+        'authEmail':
+            '${AppConstants.superAdminLogin}@${AppConstants.technicalEmailDomain}',
+        'accountStatus': AccountStatus.active.name,
+        'role': UserRole.admin.name,
+        'canWrite': true,
+        'displayName': 'Sławomir Badura',
+        'serviceType': 'OSP',
+        'unitName': 'OSP Gorzyce',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return;
+    }
+
+    final data = snapshot.data() ?? {};
+    final alreadyValid =
+        data['uid'] == authUid &&
+        data['login'] == AppConstants.superAdminLogin &&
+        data['authEmail'] ==
+            '${AppConstants.superAdminLogin}@${AppConstants.technicalEmailDomain}' &&
+        data['accountStatus'] == AccountStatus.active.name &&
+        data['role'] == UserRole.admin.name &&
+        data['canWrite'] == true &&
+        data['blockedWrite'] == false;
+    if (alreadyValid) return;
+
+    await ref.set({
       'uid': authUid,
       'login': AppConstants.superAdminLogin,
       'authEmail':
@@ -121,9 +166,7 @@ class UsersRepository {
       'accountStatus': AccountStatus.active.name,
       'role': UserRole.admin.name,
       'canWrite': true,
-      'displayName': 'Sławomir Badura',
-      'serviceType': 'OSP',
-      'unitName': 'OSP Gorzyce',
+      'blockedWrite': false,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -136,7 +179,9 @@ class UsersRepository {
       query = query.where('accountStatus', isEqualTo: status.name);
     }
     return query.limit(limit).snapshots().map((snapshot) {
-      final users = snapshot.docs.map(AppUser.fromSnapshot);
+      final users = snapshot.docs
+          .map(AppUser.fromSnapshot)
+          .where((user) => user.accountStatus != AccountStatus.deleted);
       final byLogin = <String, AppUser>{};
       for (final user in users) {
         final key = user.login.isEmpty ? user.uid : user.login;
@@ -147,6 +192,23 @@ class UsersRepository {
     });
   }
 
+  Stream<List<AppUser>> watchPendingUsers({int limit = 500}) {
+    return _firestore
+        .collection(FirestoreCollections.users)
+        .where('accountStatus', isEqualTo: AccountStatus.pending.name)
+        .limit(limit)
+        .snapshots()
+        .map((snapshot) {
+          final users =
+              snapshot.docs
+                  .map(AppUser.fromSnapshot)
+                  .where((user) => user.accountStatus != AccountStatus.deleted)
+                  .toList()
+                ..sort((a, b) => b.joinedAt.compareTo(a.joinedAt));
+          return users;
+        });
+  }
+
   Stream<List<AppUser>> watchActiveUsers({String? unitId, int limit = 80}) {
     Query<Map<String, dynamic>> query = _firestore
         .collection(FirestoreCollections.users)
@@ -155,7 +217,9 @@ class UsersRepository {
       query = query.where('unitId', isEqualTo: unitId);
     }
     return query.limit(limit).snapshots().map((snapshot) {
-      final users = snapshot.docs.map(AppUser.fromSnapshot);
+      final users = snapshot.docs
+          .map(AppUser.fromSnapshot)
+          .where((user) => user.accountStatus != AccountStatus.deleted);
       final byLogin = <String, AppUser>{};
       for (final user in users) {
         final key = user.login.isEmpty ? user.uid : user.login;
@@ -176,13 +240,17 @@ class UsersRepository {
         .limit(limit)
         .snapshots()
         .map((snapshot) {
-          return snapshot.docs.map(AppUser.fromSnapshot).toList()..sort((a, b) {
-            final aDate =
-                a.mutedUntil ?? DateTime.fromMillisecondsSinceEpoch(0);
-            final bDate =
-                b.mutedUntil ?? DateTime.fromMillisecondsSinceEpoch(0);
-            return bDate.compareTo(aDate);
-          });
+          return snapshot.docs
+              .map(AppUser.fromSnapshot)
+              .where((user) => user.accountStatus != AccountStatus.deleted)
+              .toList()
+            ..sort((a, b) {
+              final aDate =
+                  a.mutedUntil ?? DateTime.fromMillisecondsSinceEpoch(0);
+              final bDate =
+                  b.mutedUntil ?? DateTime.fromMillisecondsSinceEpoch(0);
+              return bDate.compareTo(aDate);
+            });
         });
   }
 
@@ -196,7 +264,10 @@ class UsersRepository {
           final names = <String>{};
           for (final doc in snapshot.docs) {
             final name = (doc.data()['unitName'] as String?)?.trim() ?? '';
-            final type = UnitType.fromWire(doc.data()['unitType'] as String?);
+            final type = UnitType.fromWire(
+              (doc.data()['serviceType'] as String?) ??
+                  (doc.data()['unitType'] as String?),
+            );
             if (name.isNotEmpty && type.hasOwnUnitChat) names.add(name);
           }
           return names.toList()..sort();
@@ -208,6 +279,8 @@ class UsersRepository {
     required String nickname,
     required String phoneNumber,
     required String description,
+    String? firstName,
+    String? lastName,
     XFile? avatar,
   }) async {
     String? avatarUrl = user.avatarUrl;
@@ -217,18 +290,47 @@ class UsersRepository {
         file: avatar,
       );
     }
-    await userRef(user.uid).update({
+    final cleanNickname = nickname.trim();
+    final cleanFirstName = firstName?.trim() ?? user.firstName.trim();
+    final cleanLastName = lastName?.trim() ?? user.lastName.trim();
+    final displayBase = cleanNickname.isNotEmpty
+        ? cleanNickname
+        : cleanFirstName.isNotEmpty
+        ? cleanFirstName.split(RegExp(r'\s+')).first
+        : user.login;
+    final publicName = user.unitName.trim().isEmpty
+        ? displayBase
+        : '$displayBase (${user.unitName})';
+    final update = <String, Object?>{
       'nickname': nickname.trim(),
       'phoneNumber': phoneNumber.trim(),
       'description': description.trim(),
       'avatarUrl': avatarUrl,
-      'publicName': user.unitName.trim().isEmpty
-          ? nickname.trim()
-          : '$nickname (${user.unitName})',
-    });
+      'publicName': publicName,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (!user.hasFullName &&
+        cleanFirstName.isNotEmpty &&
+        cleanLastName.isNotEmpty) {
+      update['firstName'] = cleanFirstName;
+      update['lastName'] = cleanLastName;
+      update['fullName'] = '$cleanFirstName $cleanLastName';
+      update['displayName'] = cleanNickname.isNotEmpty
+          ? cleanNickname
+          : '$cleanFirstName $cleanLastName';
+    }
+    await userRef(user.uid).update(update);
   }
 
-  Future<void> updatePresence(String uid, PresenceStatus status) {
+  Future<void> updatePresence(String uid, PresenceStatus status) async {
+    final now = DateTime.now();
+    final previous = _lastPresenceWrites[uid];
+    if (previous != null &&
+        previous.status == status &&
+        now.difference(previous.at) < const Duration(seconds: 45)) {
+      return;
+    }
+    _lastPresenceWrites[uid] = _PresenceWrite(status: status, at: now);
     return userRef(uid).update({
       'presenceStatus': status.name,
       'lastSeenAt': FieldValue.serverTimestamp(),
@@ -238,6 +340,13 @@ class UsersRepository {
   Future<void> saveFcmToken(String uid, String token) {
     return userRef(uid).set({
       'fcmTokens': FieldValue.arrayUnion([token]),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> completeFirstLoginTutorial(String uid) {
+    return userRef(uid).set({
+      'firstLoginTutorialCompleted': true,
+      'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
@@ -266,13 +375,14 @@ class UsersRepository {
   }) async {
     final unitId = TextUtils.normalizeId(unitName);
     final batch = _firestore.batch();
+    final displayBase = user.preferredChatName;
     batch.update(userRef(user.uid), {
       'unitType': unitType.name,
       'unitName': unitName.trim(),
       'unitId': unitId,
       'publicName': unitName.trim().isEmpty
-          ? user.nickname
-          : '${user.nickname} (${unitName.trim()})',
+          ? displayBase
+          : '$displayBase (${unitName.trim()})',
     });
     batch.set(
       _firestore.collection(FirestoreCollections.units).doc(unitId),
@@ -287,4 +397,11 @@ class UsersRepository {
     );
     await batch.commit();
   }
+}
+
+class _PresenceWrite {
+  const _PresenceWrite({required this.status, required this.at});
+
+  final PresenceStatus status;
+  final DateTime at;
 }

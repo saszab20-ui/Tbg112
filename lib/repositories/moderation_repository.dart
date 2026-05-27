@@ -83,10 +83,41 @@ class ModerationRepository {
     required AppUser target,
     required AccountStatus status,
   }) async {
-    await _firestore
+    final batch = _firestore.batch();
+    final userRef = _firestore
         .collection(FirestoreCollections.users)
-        .doc(target.uid)
-        .update({'accountStatus': status.name});
+        .doc(target.uid);
+    final canWrite = status == AccountStatus.active;
+    batch.update(userRef, {
+      'accountStatus': status.name,
+      'canWrite': canWrite,
+      'blockedWrite': !canWrite,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    if (status == AccountStatus.active &&
+        target.unitType.hasOwnUnitChat &&
+        target.unitName.trim().isNotEmpty) {
+      final unitId = target.unitId.trim().isNotEmpty
+          ? target.unitId
+          : TextUtils.normalizeId(target.unitName);
+      batch.set(
+        _firestore.collection(FirestoreCollections.units).doc(unitId),
+        {
+          'id': unitId,
+          'name': target.unitName.trim(),
+          'type': target.unitType.name,
+          'serviceType': target.unitType.badgeLabel,
+          'voivodeship': target.voivodeship,
+          'county': target.county,
+          'memberIds': FieldValue.arrayUnion([target.uid]),
+          'active': true,
+          'updatedAt': FieldValue.serverTimestamp(),
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+    await batch.commit();
     await logAction(
       actor: actor,
       action: 'change_account_status',
@@ -101,10 +132,20 @@ class ModerationRepository {
     required AppUser target,
     required UserRole role,
   }) async {
+    final update = <String, Object?>{
+      'role': role.name,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (role == UserRole.moderator && target.role != UserRole.moderator) {
+      update['moderatorPermissions'] = <String, bool>{};
+    }
+    if (role == UserRole.user) {
+      update['moderatorPermissions'] = <String, bool>{};
+    }
     await _firestore
         .collection(FirestoreCollections.users)
         .doc(target.uid)
-        .update({'role': role.name});
+        .update(update);
     await logAction(
       actor: actor,
       action: 'change_role',
@@ -163,6 +204,66 @@ class ModerationRepository {
     );
   }
 
+  Future<void> archiveUser({
+    required AppUser actor,
+    required AppUser target,
+  }) async {
+    final chatSnapshots = await _firestore
+        .collection(FirestoreCollections.chats)
+        .where('participants', arrayContains: target.uid)
+        .limit(500)
+        .get();
+    final unitSnapshots = await _firestore
+        .collection(FirestoreCollections.units)
+        .where('memberIds', arrayContains: target.uid)
+        .limit(100)
+        .get();
+
+    final batch = _firestore.batch();
+    final userRef = _firestore
+        .collection(FirestoreCollections.users)
+        .doc(target.uid);
+    batch.update(userRef, {
+      'accountStatus': AccountStatus.deleted.name,
+      'deleted': true,
+      'deletedAt': FieldValue.serverTimestamp(),
+      'deletedBy': actor.uid,
+      'canWrite': false,
+      'blockedWrite': true,
+      'muted': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    for (final chat in chatSnapshots.docs) {
+      batch.set(chat.reference, {
+        'participants': FieldValue.arrayRemove([target.uid]),
+        'participantIds': FieldValue.arrayRemove([target.uid]),
+        'participantLogins': FieldValue.arrayRemove([target.login]),
+        'participantNames': FieldValue.arrayRemove([target.publicName]),
+        'participantNameMap.${target.uid}': FieldValue.delete(),
+        'unreadCount.${target.uid}': FieldValue.delete(),
+        'typing.${target.uid}': FieldValue.delete(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    for (final unit in unitSnapshots.docs) {
+      batch.set(unit.reference, {
+        'memberIds': FieldValue.arrayRemove([target.uid]),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    await batch.commit();
+    await logAction(
+      actor: actor,
+      action: 'archive_user',
+      target: target,
+      oldValue: target.accountStatus.name,
+      newValue: AccountStatus.deleted.name,
+    );
+  }
+
   Future<void> updateModeratorPermissions({
     required AppUser actor,
     required AppUser target,
@@ -178,6 +279,36 @@ class ModerationRepository {
       target: target,
       oldValue: target.moderatorPermissions.toString(),
       newValue: permissions.toString(),
+    );
+  }
+
+  Future<void> updateUserFullName({
+    required AppUser actor,
+    required AppUser target,
+    required String firstName,
+    required String lastName,
+  }) async {
+    final cleanFirstName = firstName.trim();
+    final cleanLastName = lastName.trim();
+    final fullName = '$cleanFirstName $cleanLastName'.trim();
+    await _firestore
+        .collection(FirestoreCollections.users)
+        .doc(target.uid)
+        .update({
+          'firstName': cleanFirstName,
+          'lastName': cleanLastName,
+          'fullName': fullName,
+          'displayName': target.nickname.trim().isEmpty
+              ? fullName
+              : target.nickname.trim(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+    await logAction(
+      actor: actor,
+      action: 'change_user_full_name',
+      target: target,
+      oldValue: target.fullName,
+      newValue: fullName,
     );
   }
 
@@ -197,13 +328,38 @@ class ModerationRepository {
     final unitRef = _firestore
         .collection(FirestoreCollections.units)
         .doc(unitId);
+    final oldUnitId = target.unitId.trim().isEmpty
+        ? TextUtils.normalizeId(target.unitName)
+        : target.unitId;
+    if (oldUnitId.isNotEmpty && oldUnitId != unitId) {
+      batch.set(
+        _firestore.collection(FirestoreCollections.units).doc(oldUnitId),
+        {
+          'memberIds': FieldValue.arrayRemove([target.uid]),
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    }
+    final cleanUnitName = unitName.trim();
+    final displayBase = target.preferredChatName;
+    final publicName =
+        cleanUnitName.isEmpty &&
+            (unitType == UnitType.media || unitType == UnitType.informator)
+        ? '$displayBase (${unitType.label})'
+        : cleanUnitName.isEmpty
+        ? displayBase
+        : '$displayBase ($cleanUnitName)';
     batch.update(userRef, {
       'voivodeship': voivodeship,
       'county': county,
       'unitType': unitType.name,
-      'unitName': unitName,
+      'serviceType': unitType.badgeLabel,
+      'unitName': cleanUnitName,
       'unitId': unitId,
-      'publicName': '${target.nickname} ($unitName)',
+      'publicName': publicName,
+      'displayName': target.displayName,
+      'updatedAt': FieldValue.serverTimestamp(),
     });
     if (unitId.isNotEmpty && unitType.hasOwnUnitChat) {
       batch.set(unitRef, {

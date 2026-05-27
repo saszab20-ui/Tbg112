@@ -55,6 +55,12 @@ service cloud.firestore {
             || me().mutedUntil < request.time));
     }
 
+    function hasMissingFullName() {
+      return !resource.data.keys().hasAll(['firstName', 'lastName'])
+        || resource.data.firstName == ''
+        || resource.data.lastName == '';
+    }
+
     function unitChatEligible() {
       return hasProfile()
         && me().unitType in ['osp', 'psp', 'policja', 'zrm']
@@ -64,6 +70,19 @@ service cloud.firestore {
 
     function chatPath(chatId) {
       return /databases/$(database)/documents/chats/$(chatId);
+    }
+
+    function serviceSessionPath(uid) {
+      return /databases/$(database)/documents/service_sessions/$(uid);
+    }
+
+    function isServicePreview() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['email'])
+        && request.auth.token.email == 'badura_admin@tarnobrzeg112.local'
+        && exists(serviceSessionPath(request.auth.uid))
+        && get(serviceSessionPath(request.auth.uid)).data.active == true
+        && get(serviceSessionPath(request.auth.uid)).data.expiresAt > request.time;
     }
 
     function chatExists(chatId) {
@@ -89,11 +108,31 @@ service cloud.firestore {
     }
 
     function participants(data) {
-      return data.participants == null ? [] : data.participants;
+      return data.participants is list
+        ? data.participants
+        : (data.participantIds is list ? data.participantIds : []);
     }
 
     function isParticipant(data) {
       return signedIn() && request.auth.uid in participants(data);
+    }
+
+    function isPrivateChatIdForAuth(chatId) {
+      return signedIn()
+        && chatId.matches('^private_.*' + request.auth.uid + '.*$');
+    }
+
+    function canAccessChat(chatId, data) {
+      return canAccessChatData(data)
+        || (isActive()
+          && chatType(data) == 'private'
+          && isPrivateChatIdForAuth(chatId));
+    }
+
+    function isServicePreviewUnitChat(chatId) {
+      return isServicePreview()
+        && chatExists(chatId)
+        && chatType(chatData(chatId)) == 'unit';
     }
 
     function sameUnit(data) {
@@ -101,6 +140,33 @@ service cloud.firestore {
         && (
           (data.unitId != null && data.unitId == me().unitId)
           || (data.unitName != null && data.unitName == me().unitName)
+        );
+    }
+
+    function serviceChannelAccess(data) {
+      return hasProfile()
+        && chatType(data) == 'unit'
+        && data.unitId in [
+          'service_psp',
+          'service_policja',
+          'service_medycy',
+          'service_media',
+          'service-psp',
+          'service-policja',
+          'service-medycy',
+          'service-media'
+        ]
+        && (
+          isAdmin()
+          || (data.unitId in ['service_psp', 'service-psp'] && moderatorCan('channelPsp'))
+          || (data.unitId in ['service_policja', 'service-policja'] && moderatorCan('channelPolicja'))
+          || (data.unitId in ['service_media', 'service-media'] && moderatorCan('channelMedia'))
+          || (data.unitId in ['service_medycy', 'service-medycy'] && moderatorCan('channelMedycy'))
+          || (me().role != 'moderator' && data.unitId in ['service_psp', 'service-psp'] && me().unitType == 'psp')
+          || (me().role != 'moderator' && data.unitId in ['service_policja', 'service-policja'] && me().unitType == 'policja')
+          || (me().role != 'moderator' && data.unitId in ['service_media', 'service-media'] && me().unitType == 'media')
+          || (me().role != 'moderator' && data.unitId in ['service_medycy', 'service-medycy']
+            && me().unitType in ['zrm', 'ratownikMedyczny', 'kierowcaKaretki', 'dyspozytor'])
         );
     }
 
@@ -113,19 +179,21 @@ service cloud.firestore {
     }
 
     function canAccessChatData(data) {
-      return isAdmin()
+      return (isServicePreview() && chatType(data) == 'unit')
         || (isActive()
           && (
             chatType(data) == 'main'
-            || (chatType(data) == 'unit' && (sameUnit(data) || explicitChatAccess(data)))
+            || (chatType(data) == 'unit' && (sameUnit(data) || serviceChannelAccess(data) || explicitChatAccess(data)))
             || isParticipant(data)
             || explicitChatAccess(data)
           ));
     }
 
     function canReadMessagesInChat(chatId) {
-      return isAdmin()
-        || (chatExists(chatId) && canAccessChatData(chatData(chatId)))
+      return (isServicePreview()
+          && chatExists(chatId)
+          && chatType(chatData(chatId)) == 'unit')
+        || (chatExists(chatId) && canAccessChat(chatId, chatData(chatId)))
         || (isActive()
           && (
             chatId == 'main'
@@ -140,7 +208,7 @@ service cloud.firestore {
         && (
           chatType(request.resource.data) == 'main'
           || (chatType(request.resource.data) == 'unit'
-            && (isAdmin() || sameUnit(request.resource.data)))
+            && (sameUnit(request.resource.data) || serviceChannelAccess(request.resource.data)))
           || ((chatType(request.resource.data) in ['private', 'group'])
             && request.auth.uid in participants(request.resource.data))
         );
@@ -152,7 +220,15 @@ service cloud.firestore {
         'lastMessage',
         'lastMessageAt',
         'unreadCount',
-        'typing'
+        'deliveredReceipts',
+        'readReceipts',
+        'lastReadMessageId',
+        'deliveredReceipts.' + request.auth.uid,
+        'readReceipts.' + request.auth.uid,
+        'lastReadMessageId.' + request.auth.uid,
+        'unreadCount.' + request.auth.uid,
+        'typing',
+        'hiddenFor'
       ]);
     }
 
@@ -160,11 +236,32 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
         'name',
         'themeColor',
+        'messageStyle',
+        'chatTheme',
         'backgroundType',
         'backgroundImageUrl',
         'backgroundPreset',
-        'inviteCode',
-        'inviteLink',
+        'incomingSound',
+        'privateSound',
+        'mentionSound',
+        'sendSound',
+        'adminAlertSound',
+        'vibrationEnabled',
+        'notificationMode',
+        'updatedAt'
+      ]);
+    }
+
+    function chatReadKeysOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'readReceipts',
+        'deliveredReceipts',
+        'lastReadMessageId',
+        'unreadCount',
+        'deliveredReceipts.' + request.auth.uid,
+        'readReceipts.' + request.auth.uid,
+        'lastReadMessageId.' + request.auth.uid,
+        'unreadCount.' + request.auth.uid,
         'updatedAt'
       ]);
     }
@@ -178,37 +275,89 @@ service cloud.firestore {
         'participantNameMap',
         'unreadCount',
         'typing',
+        'joinedAt',
+        'hiddenFor',
         'updatedAt'
       ]);
     }
 
-    function activeInviteForChat(chatId) {
-      return resource.data.inviteCode is string
-        && exists(/databases/$(database)/documents/invites/$(resource.data.inviteCode))
-        && get(/databases/$(database)/documents/invites/$(resource.data.inviteCode)).data.active == true
-        && get(/databases/$(database)/documents/invites/$(resource.data.inviteCode)).data.chatId == chatId;
+    function privateChatParticipantKeysOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'participants',
+        'participantIds',
+        'participantLogins',
+        'participantNames',
+        'participantNameMap',
+        'unreadCount',
+        'typing',
+        'joinedAt',
+        'hiddenFor',
+        'visibilityMode',
+        'expiresAt',
+        'updatedAt'
+      ]);
     }
 
-    function canUpdateGroupMembers(chatId) {
+    function selfChatVisibilityKeysOnly() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'hiddenFor',
+        'clearedAt',
+        'joinedAt',
+        'updatedAt'
+      ]);
+    }
+
+    function canUpdateGroupMembers() {
       return isActive()
         && chatType(resource.data) == 'group'
         && groupParticipantKeysOnly()
         && (
           isAdmin()
           || resource.data.createdBy == request.auth.uid
+          || resource.data.ownerId == request.auth.uid
+          || moderatorCan('manageChatMembers')
           || (
-            activeInviteForChat(chatId)
-            && !(request.auth.uid in participants(resource.data))
-            && request.auth.uid in participants(request.resource.data)
+            request.auth.uid in participants(resource.data)
+            && !(request.auth.uid in participants(request.resource.data))
           )
         );
     }
 
     function canUpdateChatSettings() {
-      return isAdmin()
-        || (isActive()
+      return (isActive()
           && resource.data.createdBy == request.auth.uid
           && chatSettingsKeysOnly());
+    }
+
+    function canUpdatePrivateChatMembersOrVisibility() {
+      return isActive()
+        && chatType(resource.data) == 'private'
+        && (
+          request.auth.uid in participants(resource.data)
+          || (resource.data.id is string
+            && isPrivateChatIdForAuth(resource.data.id)
+            && request.auth.uid in participants(request.resource.data))
+        )
+        && privateChatParticipantKeysOnly();
+    }
+
+    function canUpdateOwnChatVisibility() {
+      return isActive()
+        && request.auth.uid in participants(resource.data)
+        && selfChatVisibilityKeysOnly();
+    }
+
+    function canArchiveGroup() {
+      return isActive()
+        && chatType(resource.data) == 'group'
+        && (isAdmin() || resource.data.createdBy == request.auth.uid)
+        && request.resource.data.isArchived == true;
+    }
+
+    function canDeleteGroupMessage(chatId) {
+      return chatExists(chatId)
+        && chatType(chatData(chatId)) == 'group'
+        && (isAdmin() || chatData(chatId).createdBy == request.auth.uid);
     }
 
     function isOwnMessageRecall() {
@@ -223,6 +372,8 @@ service cloud.firestore {
           'deleted',
           'deletedAt',
           'deletedBy',
+          'deletedByName',
+          'originalMessage',
           'originalTextForAdmin',
           'originalAttachmentsForAdmin',
           'text',
@@ -243,6 +394,8 @@ service cloud.firestore {
           'deleted',
           'deletedAt',
           'deletedBy',
+          'deletedByName',
+          'originalMessage',
           'originalTextForAdmin',
           'originalAttachmentsForAdmin',
           'text',
@@ -250,6 +403,21 @@ service cloud.firestore {
           'fileUrl',
           'fileName',
           'attachments'
+        ]);
+    }
+
+    function isOwnMessageEdit() {
+      return canWrite()
+        && resource.data.senderId == request.auth.uid
+        && request.resource.data.senderId == resource.data.senderId
+        && request.resource.data.isDeleted != true
+        && request.resource.data.deleted != true
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'text',
+          'editedAt',
+          'editHistory'
         ]);
     }
 
@@ -264,11 +432,16 @@ service cloud.firestore {
     function validMessageCreate(chatId) {
       return canWrite()
         && chatExistsForWrite(chatId)
-        && canAccessChatData(chatDataForWrite(chatId))
+        && !isServicePreviewUnitChat(chatId)
+        && canAccessChat(chatId, chatDataForWrite(chatId))
         && request.resource.data.chatId == chatId
         && request.resource.data.senderId == request.auth.uid
         && request.resource.data.isDeleted != true
         && request.resource.data.deleted != true;
+    }
+
+    match /{path=**}/messages/{messageId} {
+      allow read: if isServicePreview();
     }
 
     match /users/{uid} {
@@ -280,7 +453,18 @@ service cloud.firestore {
             && request.resource.data.role == 'admin'
             && request.resource.data.accountStatus == 'active')
           || (request.resource.data.role == 'user'
-            && request.resource.data.accountStatus in ['pending', 'active'])
+            && request.resource.data.accountStatus == 'pending'
+            && request.resource.data.canWrite == false
+            && request.resource.data.uid == uid
+            && request.resource.data.login is string
+            && request.resource.data.firstName is string
+            && request.resource.data.lastName is string
+            && request.resource.data.fullName is string
+            && request.resource.data.nickname is string
+            && request.resource.data.displayName is string
+            && request.resource.data.serviceType is string
+            && request.resource.data.county is string
+            && request.resource.data.voivodeship is string)
         );
 
       allow read: if isAdmin()
@@ -291,13 +475,16 @@ service cloud.firestore {
         || (moderatorCan('approveAccounts')
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'accountStatus',
+            'canWrite',
+            'blockedWrite',
             'unitType',
             'serviceType',
             'unitName',
             'unitId',
             'voivodeship',
             'county',
-            'publicName'
+            'publicName',
+            'updatedAt'
           ]))
         || (moderatorCan('muteUsers')
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -316,14 +503,30 @@ service cloud.firestore {
           && request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'nickname',
+            'firstName',
+            'lastName',
+            'fullName',
+            'displayName',
             'phoneNumber',
             'description',
             'avatarUrl',
             'publicName',
             'presenceStatus',
             'lastSeenAt',
-            'fcmTokens'
+            'fcmTokens',
+            'mustChangePassword',
+            'mustSetPassword',
+            'firstLoginTutorialCompleted',
+            'settings',
+            'settingsUpdatedAt',
+            'updatedAt'
           ])
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'firstName',
+            'lastName',
+            'fullName',
+            'displayName'
+          ]) || hasMissingFullName())
           && request.resource.data.role == resource.data.role
           && request.resource.data.accountStatus == resource.data.accountStatus
           && request.resource.data.unitId == resource.data.unitId
@@ -333,66 +536,68 @@ service cloud.firestore {
     }
 
     match /chats/{chatId} {
-      allow read: if chatExists(chatId) && canAccessChatData(resource.data);
+      allow get: if (chatExists(chatId) && canAccessChatData(resource.data))
+        || (!chatExists(chatId) && isActive());
+      allow list: if isActive();
       allow create: if canCreateChat();
-      allow update: if isAdmin()
-        || (canWrite() && canAccessChatData(resource.data) && chatMessageMetadataKeysOnly())
+      allow update: if (isAdmin() && chatType(resource.data) == 'main')
+        || (canWrite() && !isServicePreviewUnitChat(chatId) && canAccessChat(chatId, resource.data) && chatMessageMetadataKeysOnly())
+        || (isActive() && !isServicePreviewUnitChat(chatId) && canAccessChat(chatId, resource.data) && chatReadKeysOnly())
         || canUpdateChatSettings()
-        || canUpdateGroupMembers(chatId);
-      allow delete: if isAdmin();
+        || canUpdateGroupMembers()
+        || canUpdatePrivateChatMembersOrVisibility()
+        || canUpdateOwnChatVisibility()
+        || canArchiveGroup();
+      allow delete: if isAdmin() && chatType(resource.data) == 'main';
 
       match /messages/{messageId} {
         allow read: if canReadMessagesInChat(chatId);
         allow create: if validMessageCreate(chatId);
-        allow update: if isAdmin()
+        allow update: if (isAdmin()
+            && chatExists(chatId)
+            && !isServicePreviewUnitChat(chatId)
+            && canAccessChat(chatId, chatData(chatId)))
           || (chatExists(chatId)
-            && canAccessChatData(chatData(chatId))
-            && (isOwnMessageRecall() || isModeratorRecall() || isReactionOrReportUpdate()));
-        allow delete: if isAdmin();
+            && !isServicePreviewUnitChat(chatId)
+            && canAccessChat(chatId, chatData(chatId))
+            && (isOwnMessageRecall() || isModeratorRecall() || isOwnMessageEdit() || isReactionOrReportUpdate()));
+        allow delete: if !isServicePreviewUnitChat(chatId)
+          && (
+            (isAdmin()
+              && chatExists(chatId)
+              && canAccessChat(chatId, chatData(chatId)))
+            || canDeleteGroupMessage(chatId)
+          );
       }
 
       match /typing/{uid} {
-        allow read: if chatExists(chatId) && canAccessChatData(chatData(chatId));
+        allow read: if chatExists(chatId) && canAccessChat(chatId, chatData(chatId));
         allow write: if signedIn()
           && request.auth.uid == uid
           && canWrite()
           && chatExists(chatId)
-          && canAccessChatData(chatData(chatId));
+          && !isServicePreviewUnitChat(chatId)
+          && canAccessChat(chatId, chatData(chatId));
       }
-    }
 
-    match /invites/{inviteCode} {
-      allow read: if signedIn();
-      allow create: if canWrite()
-        && request.resource.data.createdBy == request.auth.uid
-        && request.resource.data.chatId is string
-        && chatExistsForWrite(request.resource.data.chatId)
-        && (
-          isAdmin()
-          || chatDataForWrite(request.resource.data.chatId).createdBy == request.auth.uid
-          || request.auth.uid in participants(chatDataForWrite(request.resource.data.chatId))
-        );
-      allow update: if isAdmin()
-        || (isActive()
-          && resource.data.active == true
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'usedBy',
-            'usedCount'
-          ])
-          && request.auth.uid in request.resource.data.usedBy
-          && request.resource.data.usedCount == resource.data.usedCount + 1)
-        || (isActive()
-          && resource.data.createdBy == request.auth.uid
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-            'active'
-          ]));
-      allow delete: if isAdmin()
-        || (isActive() && resource.data.createdBy == request.auth.uid);
+      match /reads/{uid} {
+        allow read: if signedIn()
+          && request.auth.uid == uid
+          && chatExists(chatId)
+          && canAccessChat(chatId, chatData(chatId));
+        allow write: if signedIn()
+          && request.auth.uid == uid
+          && isActive()
+          && chatExists(chatId)
+          && !isServicePreviewUnitChat(chatId)
+          && canAccessChat(chatId, chatData(chatId));
+      }
     }
 
     match /invite_codes/{code} {
       allow read: if signedIn();
-      allow create, delete: if isAdmin();
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
       allow update: if isAdmin()
         || (signedIn()
           && resource.data.active == true
@@ -412,9 +617,45 @@ service cloud.firestore {
       allow read: if isActive()
         && (resource.data.recipientId == request.auth.uid
           || resource.data.recipientId == 'all');
-      allow update: if isActive()
-        && resource.data.recipientId == request.auth.uid;
-      allow create, delete: if isAdmin();
+      allow update: if (isActive()
+          && resource.data.recipientId == request.auth.uid)
+        || isAdmin()
+        || (isActive()
+          && resource.data.createdBy == request.auth.uid
+          && resource.data.type == 'adminAnnouncement');
+      allow create: if isAdmin()
+        || (isActive()
+          && request.resource.data.recipientId == 'all'
+          && request.resource.data.title is string
+          && request.resource.data.body is string
+          && request.resource.data.type == 'adminAnnouncement'
+          && request.resource.data.data is map
+          && request.resource.data.data.eventId is string);
+      allow delete: if isAdmin()
+        || (isActive()
+          && resource.data.createdBy == request.auth.uid
+          && resource.data.type == 'adminAnnouncement');
+    }
+
+    match /events/{eventId} {
+      allow read: if isActive();
+      allow create: if isActive()
+        && request.resource.data.organizerId == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.place is string
+        && request.resource.data.dateTime is timestamp;
+      allow update: if moderatorCan('manageEvents')
+        || (isActive()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'interestedIds',
+            'attendeeIds',
+            'updatedAt'
+          ]))
+        || (isActive()
+          && resource.data.organizerId == request.auth.uid);
+      allow delete: if isAdmin()
+        || moderatorCan('manageEvents')
+        || (isActive() && resource.data.organizerId == request.auth.uid);
     }
 
     match /reports/{reportId} {
@@ -425,8 +666,24 @@ service cloud.firestore {
 
     match /moderation_logs/{logId} {
       allow read: if isAdmin() || moderatorCan('accessLogs');
-      allow create: if isModerator();
+      allow create: if isModerator()
+        || (isActive()
+          && request.resource.data.performedBy == request.auth.uid
+          && (request.resource.data.action == 'event_updated'
+            || request.resource.data.action == 'event_deleted'));
       allow update, delete: if isAdmin();
+    }
+
+    match /service_sessions/{uid} {
+      allow read, create, update, delete: if isAdmin()
+        && request.auth.uid == uid
+        && request.auth.token.keys().hasAny(['email'])
+        && request.auth.token.email == 'badura_admin@tarnobrzeg112.local';
+    }
+
+    match /password_reset_requests/{requestId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
     }
 
     match /pinned_messages/{pinId} {

@@ -64,7 +64,7 @@ class PrivateChatScreen extends ConsumerWidget {
           actions: [
             IconButton(
               tooltip: 'Ustawienia czatu',
-              onPressed: () => context.go(RoutePaths.chatSettings(chat.id)),
+              onPressed: () => context.push(RoutePaths.chatSettings(chat.id)),
               icon: const Icon(Icons.tune_outlined),
             ),
           ],

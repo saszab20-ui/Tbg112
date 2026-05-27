@@ -80,8 +80,17 @@ enum UnitType {
     if (normalized == 'inne' || normalized == 'inne służby') {
       return UnitType.inne;
     }
-    if (value == 'ratownik_medyczny') return UnitType.ratownikMedyczny;
-    if (value == 'kierowca_karetki') return UnitType.kierowcaKaretki;
+    if (normalized == 'ratownik' ||
+        normalized == 'ratownik medyczny' ||
+        normalized == 'ratownik_medyczny') {
+      return UnitType.ratownikMedyczny;
+    }
+    if (normalized == 'kierowca' ||
+        normalized == 'kierowca karetki' ||
+        normalized == 'kierowca_karetki') {
+      return UnitType.kierowcaKaretki;
+    }
+    if (normalized == 'dyspozytor') return UnitType.dyspozytor;
     return UnitType.values.firstWhere(
       (type) => type.name == value,
       orElse: () => UnitType.inne,
@@ -94,7 +103,8 @@ enum AccountStatus {
   active,
   rejected,
   banned,
-  suspended;
+  suspended,
+  deleted;
 
   String get label => switch (this) {
     AccountStatus.pending => 'Oczekuje',
@@ -102,6 +112,7 @@ enum AccountStatus {
     AccountStatus.rejected => 'Odrzucone',
     AccountStatus.banned => 'Zbanowane',
     AccountStatus.suspended => 'Zawieszone',
+    AccountStatus.deleted => 'Usunięte',
   };
 
   static AccountStatus fromWire(String? value) =>

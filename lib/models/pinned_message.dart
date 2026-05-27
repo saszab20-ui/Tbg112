@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/utils/date_time_utils.dart';
+import 'package:tarnobrzeg112/utils/text_utils.dart';
 
 class PinnedMessage {
   const PinnedMessage({
@@ -42,8 +43,8 @@ class PinnedMessage {
       messageId: (map['messageId'] as String?) ?? '',
       chatId: (map['chatId'] as String?) ?? '',
       chatScope: ChatScope.fromWire(map['chatScope'] as String?),
-      text: (map['text'] as String?) ?? '',
-      pinnedBy: (map['pinnedBy'] as String?) ?? '',
+      text: TextUtils.repairPolishText((map['text'] as String?) ?? ''),
+      pinnedBy: TextUtils.repairPolishText((map['pinnedBy'] as String?) ?? ''),
       pinnedAt: DateTimeUtils.fromJson(map['pinnedAt']) ?? DateTime.now(),
     );
   }

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/utils/date_time_utils.dart';
+import 'package:tarnobrzeg112/utils/text_utils.dart';
 
 class NotificationModel {
   const NotificationModel({
@@ -43,8 +44,8 @@ class NotificationModel {
     return NotificationModel(
       id: (map['id'] as String?) ?? fallbackId ?? '',
       recipientId: (map['recipientId'] as String?) ?? '',
-      title: (map['title'] as String?) ?? '',
-      body: (map['body'] as String?) ?? '',
+      title: TextUtils.repairPolishText((map['title'] as String?) ?? ''),
+      body: TextUtils.repairPolishText((map['body'] as String?) ?? ''),
       type: NotificationKind.fromWire(map['type'] as String?),
       createdAt: DateTimeUtils.fromJson(map['createdAt']) ?? DateTime.now(),
       data: Map<String, String>.from((map['data'] as Map?) ?? const {}),

@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/utils/date_time_utils.dart';
+import 'package:tarnobrzeg112/utils/text_utils.dart';
 
 class ReportModel {
   const ReportModel({
@@ -50,7 +51,7 @@ class ReportModel {
       createdAt: DateTimeUtils.fromJson(map['createdAt']) ?? DateTime.now(),
       targetMessageId: map['targetMessageId'] as String?,
       targetUserId: map['targetUserId'] as String?,
-      details: (map['details'] as String?) ?? '',
+      details: TextUtils.repairPolishText((map['details'] as String?) ?? ''),
       status: (map['status'] as String?) ?? 'open',
       resolvedAt: DateTimeUtils.fromJson(map['resolvedAt']),
       assignedAdminId: map['assignedAdminId'] as String?,

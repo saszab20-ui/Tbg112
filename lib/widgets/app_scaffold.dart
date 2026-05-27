@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:tarnobrzeg112/providers/chat_providers.dart';
 import 'package:tarnobrzeg112/routes/route_paths.dart';
 import 'package:tarnobrzeg112/themes/app_colors.dart';
 import 'package:tarnobrzeg112/widgets/app_background.dart';
@@ -63,23 +65,28 @@ class AppScaffold extends StatelessWidget {
       context.pop();
       return;
     }
-    if (currentIndex != null && currentIndex != 0) {
-      context.go(RoutePaths.home);
-      return;
-    }
     if (_hasBackButton) {
       context.go(fallbackRoute);
+      return;
+    }
+    if (currentIndex != null) {
+      if (currentIndex != 1) {
+        context.go(RoutePaths.chats);
+      }
+      return;
     }
   }
 }
 
-class _BottomNav extends StatelessWidget {
+class _BottomNav extends ConsumerWidget {
   const _BottomNav(this.currentIndex);
 
   final int currentIndex;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final privateUnread = ref.watch(privateUnreadTotalProvider);
+    final chatUnread = ref.watch(chatUnreadTotalProvider);
     return NavigationBar(
       selectedIndex: currentIndex,
       onDestinationSelected: (index) {
@@ -92,28 +99,48 @@ class _BottomNav extends StatelessWidget {
         };
         context.go(location);
       },
-      destinations: const [
-        NavigationDestination(
+      destinations: [
+        const NavigationDestination(
           icon: Icon(Icons.dashboard_outlined),
           selectedIcon: Icon(Icons.dashboard, color: AppColors.red),
           label: 'Start',
         ),
         NavigationDestination(
-          icon: Icon(Icons.forum_outlined),
-          selectedIcon: Icon(Icons.forum, color: AppColors.red),
+          icon: chatUnread > 0
+              ? Badge(
+                  label: Text(_badgeText(chatUnread)),
+                  child: const Icon(Icons.forum_outlined),
+                )
+              : const Icon(Icons.forum_outlined),
+          selectedIcon: chatUnread > 0
+              ? Badge(
+                  label: Text(_badgeText(chatUnread)),
+                  child: const Icon(Icons.forum, color: AppColors.red),
+                )
+              : const Icon(Icons.forum, color: AppColors.red),
           label: 'Czat',
         ),
         NavigationDestination(
-          icon: Icon(Icons.lock_outline),
-          selectedIcon: Icon(Icons.lock, color: AppColors.red),
+          icon: privateUnread > 0
+              ? Badge(
+                  label: Text(_badgeText(privateUnread)),
+                  child: Icon(Icons.lock_outline),
+                )
+              : const Icon(Icons.lock_outline),
+          selectedIcon: privateUnread > 0
+              ? Badge(
+                  label: Text(_badgeText(privateUnread)),
+                  child: const Icon(Icons.lock, color: AppColors.red),
+                )
+              : const Icon(Icons.lock, color: AppColors.red),
           label: 'Prywatne',
         ),
-        NavigationDestination(
+        const NavigationDestination(
           icon: Icon(Icons.notifications_none),
           selectedIcon: Icon(Icons.notifications, color: AppColors.red),
           label: 'Info',
         ),
-        NavigationDestination(
+        const NavigationDestination(
           icon: Icon(Icons.person_outline),
           selectedIcon: Icon(Icons.person, color: AppColors.red),
           label: 'Profil',
@@ -121,4 +148,6 @@ class _BottomNav extends StatelessWidget {
       ],
     );
   }
+
+  String _badgeText(int count) => count > 99 ? '99+' : '$count';
 }
