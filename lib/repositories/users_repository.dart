@@ -322,38 +322,36 @@ class UsersRepository {
     await userRef(user.uid).update(update);
   }
 
-  Future<void> updatePresence(String uid, PresenceStatus status) async {
+  Future<void> updatePresence(
+    String uid,
+    PresenceStatus status, {
+    bool manual = false,
+  }) async {
     final now = DateTime.now();
     final previous = _lastPresenceWrites[uid];
 
-    // If status is not a manual override, we check for debounce
-    final isManual = status == PresenceStatus.manual ||
-        status == PresenceStatus.busy ||
-        status == PresenceStatus.invisible;
+    // If this is an automatic heartbeat and not a manual change
+    if (!manual) {
+      // Debounce automatic updates
+      if (previous != null &&
+          previous.status == status &&
+          now.difference(previous.at) < const Duration(seconds: 45)) {
+        return;
+      }
 
-    if (!isManual &&
-        previous != null &&
-        previous.status == status &&
-        now.difference(previous.at) < const Duration(seconds: 45)) {
-      return;
-    }
+      final doc = await userRef(uid).get();
+      final isManualStatus = doc.data()?['isManualStatus'] == true;
 
-    final doc = await userRef(uid).get();
-    final currentStatusRaw = doc.data()?['presenceStatus'] as String?;
-    final currentStatus = PresenceStatus.fromWire(currentStatusRaw);
-
-    // Don't auto-override manual status with online/offline from regular activities
-    final isCurrentManual = currentStatus == PresenceStatus.manual ||
-        currentStatus == PresenceStatus.busy ||
-        currentStatus == PresenceStatus.invisible;
-
-    if (isCurrentManual && !isManual) {
-      return;
+      // Don't auto-override manual override statuses with heartbeats
+      if (isManualStatus) {
+        return;
+      }
     }
 
     _lastPresenceWrites[uid] = _PresenceWrite(status: status, at: now);
     return userRef(uid).update({
       'presenceStatus': status.name,
+      'isManualStatus': manual,
       'lastSeenAt': FieldValue.serverTimestamp(),
     });
   }
@@ -361,6 +359,7 @@ class UsersRepository {
   Future<void> setCustomStatus(String uid, String statusText) {
     return userRef(uid).update({
       'presenceStatus': PresenceStatus.manual.name,
+      'isManualStatus': true,
       'customStatus': statusText.trim(),
       'lastSeenAt': FieldValue.serverTimestamp(),
     });

@@ -209,7 +209,7 @@ void _showStatusSelector(BuildContext context, WidgetRef ref, AppUser user) {
                 onTap: () {
                   ref
                       .read(usersRepositoryProvider)
-                      .updatePresence(user.uid, status);
+                      .updatePresence(user.uid, status, manual: true);
                   Navigator.pop(context);
                 },
               ),

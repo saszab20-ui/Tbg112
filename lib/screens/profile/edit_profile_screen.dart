@@ -124,7 +124,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                         if (status != PresenceStatus.manual) {
                           ref
                               .read(usersRepositoryProvider)
-                              .updatePresence(user.uid, status);
+                              .updatePresence(user.uid, status, manual: true);
                         }
                       },
                     ),

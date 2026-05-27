@@ -278,6 +278,11 @@ service cloud.firestore {
         'joinedAt',
         'hiddenFor',
         'updatedAt'
+      ]) || request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'participantNameMap',
+        'unreadCount',
+        'typing',
+        'joinedAt'
       ]);
     }
 
@@ -295,6 +300,11 @@ service cloud.firestore {
         'visibilityMode',
         'expiresAt',
         'updatedAt'
+      ]) || request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'participantNameMap',
+        'unreadCount',
+        'typing',
+        'joinedAt'
       ]);
     }
 

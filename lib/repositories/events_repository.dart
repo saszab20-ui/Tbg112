@@ -22,22 +22,12 @@ class EventsRepository {
   CollectionReference<Map<String, dynamic>> get _moderationLogs =>
       _firestore.collection(FirestoreCollections.moderationLogs);
 
-  Stream<List<EventModel>> watchEvents({
-    int limit = 50,
-    bool includeExpired = false,
-  }) {
+  Stream<List<EventModel>> watchEvents({int limit = 50}) {
     return _events
         .orderBy('dateTime')
         .limit(limit)
         .snapshots()
-        .map((snapshot) {
-          final now = DateTime.now();
-          final cutoff = now.subtract(const Duration(hours: 4));
-          return snapshot.docs
-              .map(EventModel.fromSnapshot)
-              .where((event) => includeExpired || event.dateTime.isAfter(cutoff))
-              .toList();
-        });
+        .map((snapshot) => snapshot.docs.map(EventModel.fromSnapshot).toList());
   }
 
   Future<void> createEvent({

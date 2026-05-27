@@ -38,6 +38,7 @@ class AppUser {
     this.mustChangePassword = false,
     this.firstLoginTutorialCompleted = true,
     this.fcmTokens = const [],
+    this.isManualStatus = false,
   });
 
   final String uid;
@@ -73,6 +74,7 @@ class AppUser {
   final bool mustChangePassword;
   final bool firstLoginTutorialCompleted;
   final List<String> fcmTokens;
+  final bool isManualStatus;
 
   String get preferredChatName {
     final cleanNickname = nickname.trim();
@@ -168,6 +170,7 @@ class AppUser {
     bool? mustChangePassword,
     bool? firstLoginTutorialCompleted,
     List<String>? fcmTokens,
+    bool? isManualStatus,
   }) {
     return AppUser(
       uid: uid ?? this.uid,
@@ -205,6 +208,7 @@ class AppUser {
       firstLoginTutorialCompleted:
           firstLoginTutorialCompleted ?? this.firstLoginTutorialCompleted,
       fcmTokens: fcmTokens ?? this.fcmTokens,
+      isManualStatus: isManualStatus ?? this.isManualStatus,
     );
   }
 
@@ -250,6 +254,7 @@ class AppUser {
       'mustSetPassword': mustChangePassword,
       'firstLoginTutorialCompleted': firstLoginTutorialCompleted,
       'fcmTokens': fcmTokens,
+      'isManualStatus': isManualStatus,
       'displayName': displayName,
       'publicName': publicName,
       'searchIndex': [
@@ -324,6 +329,7 @@ class AppUser {
           ? _bool(map['firstLoginTutorialCompleted'])
           : true,
       fcmTokens: _stringList(map['fcmTokens']),
+      isManualStatus: _bool(map['isManualStatus']),
     );
   }
 

@@ -174,14 +174,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-class _StartUserCard extends StatelessWidget {
+class _StartUserCard extends ConsumerWidget {
   const _StartUserCard({required this.user, required this.activeCount});
 
   final AppUser user;
   final int activeCount;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final fullName = user.fullName.trim().isEmpty
         ? user.displayName
         : user.fullName;
@@ -226,9 +226,12 @@ class _StartUserCard extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: _InfoPill(
-                color: _presenceColor(user.presenceStatus),
-                text: user.presenceStatus.label,
+              child: InkWell(
+                onTap: () => _showStatusSelector(context, ref, user),
+                child: _InfoPill(
+                  color: _presenceColor(user.presenceStatus),
+                  text: _presenceLabel(user),
+                ),
               ),
             ),
             const SizedBox(width: 10),
@@ -261,6 +264,64 @@ class _StartUserCard extends StatelessWidget {
       PresenceStatus.offline => AppColors.red,
       PresenceStatus.manual => AppColors.cyan,
     };
+  }
+
+  static String _presenceLabel(AppUser user) {
+    if (user.presenceStatus == PresenceStatus.manual &&
+        user.customStatus.isNotEmpty) {
+      return user.customStatus;
+    }
+    return user.presenceStatus.label;
+  }
+
+  void _showStatusSelector(BuildContext context, WidgetRef ref, AppUser user) {
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'Wybierz status',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            for (final status in PresenceStatus.values)
+              if (status != PresenceStatus.unavailable &&
+                  status != PresenceStatus.manual)
+                ListTile(
+                  leading: Icon(
+                    Icons.circle,
+                    color: _presenceColor(status),
+                    size: 16,
+                  ),
+                  title: Text(status.label),
+                  trailing: user.presenceStatus == status
+                      ? const Icon(Icons.check, color: Colors.green)
+                      : null,
+                  onTap: () {
+                    ref
+                        .read(usersRepositoryProvider)
+                        .updatePresence(user.uid, status, manual: true);
+                    Navigator.pop(context);
+                  },
+                ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined, size: 18),
+              title: const Text('Własny status...'),
+              onTap: () {
+                Navigator.pop(context);
+                context.push(RoutePaths.editProfile);
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
   }
 }
 

@@ -157,7 +157,7 @@ class _Tarnobrzeg112AppState extends ConsumerState<Tarnobrzeg112App>
     unawaited(
       ref
           .read(usersRepositoryProvider)
-          .updatePresence(uid, PresenceStatus.online)
+          .updatePresence(uid, PresenceStatus.online, manual: false)
           .catchError((Object error) {
             debugPrint('Presence update failed: $error');
           }),
@@ -170,7 +170,7 @@ class _Tarnobrzeg112AppState extends ConsumerState<Tarnobrzeg112App>
     unawaited(
       ref
           .read(usersRepositoryProvider)
-          .updatePresence(uid, PresenceStatus.offline)
+          .updatePresence(uid, PresenceStatus.offline, manual: false)
           .catchError((Object error) {
             debugPrint('Presence offline update failed: $error');
           }),
