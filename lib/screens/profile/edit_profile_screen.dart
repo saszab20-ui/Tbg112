@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -121,10 +122,21 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                       currentStatus: user.presenceStatus,
                       customStatusController: _customStatus,
                       onChanged: (status) {
+                        if (kDebugMode) {
+                          debugPrint(
+                            'EditProfileScreen: changing presenceStatus to ${status.name}',
+                          );
+                        }
                         if (status != PresenceStatus.manual) {
                           ref
                               .read(usersRepositoryProvider)
-                              .updatePresence(user.uid, status, manual: true);
+                              .updatePresence(
+                                user.uid,
+                                status,
+                                manual: true,
+                                currentStatus: user.presenceStatus,
+                                currentIsManual: user.isManualStatus,
+                              );
                         }
                       },
                     ),

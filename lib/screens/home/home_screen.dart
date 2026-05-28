@@ -305,7 +305,13 @@ class _StartUserCard extends ConsumerWidget {
                   onTap: () {
                     ref
                         .read(usersRepositoryProvider)
-                        .updatePresence(user.uid, status, manual: true);
+                        .updatePresence(
+                          user.uid,
+                          status,
+                          manual: true,
+                          currentStatus: user.presenceStatus,
+                          currentIsManual: user.isManualStatus,
+                        );
                     Navigator.pop(context);
                   },
                 ),

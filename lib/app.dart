@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -142,8 +143,8 @@ class _Tarnobrzeg112AppState extends ConsumerState<Tarnobrzeg112App>
   }
 
   void _markActive({bool force = false}) {
-    final uid =
-        ref.read(currentAppUserProvider).asData?.value?.uid ?? _presenceUid;
+    final user = ref.read(currentAppUserProvider).asData?.value;
+    final uid = user?.uid ?? _presenceUid;
     if (uid == null || uid.isEmpty) return;
     final now = DateTime.now();
     final lastWrite = _lastPresenceWrite;
@@ -154,10 +155,25 @@ class _Tarnobrzeg112AppState extends ConsumerState<Tarnobrzeg112App>
     }
     _lastPresenceWrite = now;
     _presenceUid = uid;
+
+    if (kDebugMode) {
+      debugPrint(
+        'Tarnobrzeg112App._markActive: uid=$uid '
+        'currentPresence=${user?.presenceStatus.name} '
+        'isManual=${user?.isManualStatus}',
+      );
+    }
+
     unawaited(
       ref
           .read(usersRepositoryProvider)
-          .updatePresence(uid, PresenceStatus.online, manual: false)
+          .updatePresence(
+            uid,
+            PresenceStatus.online,
+            manual: false,
+            currentStatus: user?.presenceStatus,
+            currentIsManual: user?.isManualStatus,
+          )
           .catchError((Object error) {
             debugPrint('Presence update failed: $error');
           }),
@@ -165,12 +181,22 @@ class _Tarnobrzeg112AppState extends ConsumerState<Tarnobrzeg112App>
   }
 
   void _markOffline() {
+    final user = ref.read(currentAppUserProvider).asData?.value;
     final uid = _presenceUid;
     if (uid == null || uid.isEmpty) return;
+    if (kDebugMode) {
+      debugPrint('Tarnobrzeg112App._markOffline: uid=$uid');
+    }
     unawaited(
       ref
           .read(usersRepositoryProvider)
-          .updatePresence(uid, PresenceStatus.offline, manual: false)
+          .updatePresence(
+            uid,
+            PresenceStatus.offline,
+            manual: false,
+            currentStatus: user?.presenceStatus,
+            currentIsManual: user?.isManualStatus,
+          )
           .catchError((Object error) {
             debugPrint('Presence offline update failed: $error');
           }),

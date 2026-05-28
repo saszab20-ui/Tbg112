@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:tarnobrzeg112/core/enums.dart';
 import 'package:tarnobrzeg112/utils/date_time_utils.dart';
 import 'package:tarnobrzeg112/utils/text_utils.dart';
@@ -233,6 +234,7 @@ class AppUser {
       'role': role.name,
       'accountStatus': accountStatus.name,
       'presenceStatus': presenceStatus.name,
+      'status': presenceStatus.name,
       'customStatus': customStatus,
       'joinedAt': Timestamp.fromDate(joinedAt),
       'createdAt': Timestamp.fromDate(joinedAt),
@@ -301,9 +303,20 @@ class AppUser {
       accountStatus: AccountStatus.fromWire(
         _nullableString(map['accountStatus']),
       ),
-      presenceStatus: PresenceStatus.fromWire(
-        _nullableString(map['presenceStatus']),
-      ),
+      presenceStatus: () {
+        final presenceRaw =
+            _nullableString(map['presenceStatus']) ??
+            _nullableString(map['status']);
+        if (kDebugMode) {
+          final uid = map['uid'] ?? fallbackUid;
+          debugPrint(
+            'AppUser.fromMap: uid=$uid '
+            'presenceStatus=$presenceRaw '
+            'isManualStatus=${map['isManualStatus']}',
+          );
+        }
+        return PresenceStatus.fromWire(presenceRaw);
+      }(),
       joinedAt:
           DateTimeUtils.fromJson(map['joinedAt']) ??
           DateTimeUtils.fromJson(map['createdAt']) ??
