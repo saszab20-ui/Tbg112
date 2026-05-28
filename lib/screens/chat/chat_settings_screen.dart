@@ -163,6 +163,7 @@ class _ChatSettingsScreenState extends ConsumerState<ChatSettingsScreen> {
       id: chatId,
       participantIds: const [],
       participantNames: const {},
+      participantLogins: const [],
       updatedAt: DateTime.now(),
       createdAt: DateTime.now(),
       chatKind: isMain ? 'main' : 'unit',

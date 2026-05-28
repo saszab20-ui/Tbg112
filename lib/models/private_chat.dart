@@ -7,6 +7,7 @@ class PrivateChat {
     required this.id,
     required this.participantIds,
     required this.participantNames,
+    required this.participantLogins,
     required this.updatedAt,
     this.chatKind = 'private',
     this.name = '',
@@ -42,6 +43,7 @@ class PrivateChat {
   final String id;
   final List<String> participantIds;
   final Map<String, String> participantNames;
+  final List<String> participantLogins;
   final DateTime updatedAt;
   final String chatKind;
   final String name;
@@ -101,6 +103,7 @@ class PrivateChat {
       'ownerId': ownerId,
       'participants': participantIds,
       'participantIds': participantIds,
+      'participantLogins': participantLogins,
       'participantNames': namesList,
       'participantNameMap': participantNames,
       'updatedAt': Timestamp.fromDate(updatedAt),
@@ -151,6 +154,7 @@ class PrivateChat {
       id: _string(map['id'], fallback: fallbackId ?? ''),
       participantIds: participantIds,
       participantNames: _participantNames(map, participantIds),
+      participantLogins: _stringList(map['participantLogins']),
       updatedAt: DateTimeUtils.fromJson(map['updatedAt']) ?? DateTime.now(),
       chatKind: _string(map['type'] ?? map['chatKind'], fallback: 'private'),
       name: _text(map['name']),
