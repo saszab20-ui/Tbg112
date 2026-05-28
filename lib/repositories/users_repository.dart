@@ -366,7 +366,8 @@ class UsersRepository {
       if (effectiveIsManual &&
           (effectiveCurrentStatus == PresenceStatus.busy ||
               effectiveCurrentStatus == PresenceStatus.invisible ||
-              effectiveCurrentStatus == PresenceStatus.manual)) {
+              effectiveCurrentStatus == PresenceStatus.manual ||
+              effectiveCurrentStatus == PresenceStatus.offline)) {
         if (kDebugMode) {
           debugPrint(
             'UsersRepository.updatePresence: skipping heartbeat for manual status',

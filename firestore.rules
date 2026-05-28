@@ -281,14 +281,6 @@ service cloud.firestore {
         'clearedAt',
         'hiddenFor',
         'updatedAt'
-      ]) || request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'participantNameMap',
-        'unreadCount',
-        'typing',
-        'joinedAt',
-        'deliveredReceipts',
-        'readReceipts',
-        'clearedAt'
       ]);
     }
 
@@ -309,14 +301,6 @@ service cloud.firestore {
         'visibilityMode',
         'expiresAt',
         'updatedAt'
-      ]) || request.resource.data.diff(resource.data).affectedKeys().hasAny([
-        'participantNameMap',
-        'unreadCount',
-        'typing',
-        'joinedAt',
-        'deliveredReceipts',
-        'readReceipts',
-        'clearedAt'
       ]);
     }
 
@@ -533,7 +517,7 @@ service cloud.firestore {
           && request.resource.data.login == 'badura_admin'
           && request.resource.data.role == 'admin'
           && request.resource.data.accountStatus == 'active')
-        || (isActive()
+        || (hasProfile()
           && request.auth.uid == uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'nickname',
@@ -558,12 +542,15 @@ service cloud.firestore {
             'settingsUpdatedAt',
             'updatedAt'
           ])
-          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
-            'firstName',
-            'lastName',
-            'fullName',
-            'displayName'
-          ]) || hasMissingFullName())
+          && (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+              'firstName',
+              'lastName',
+              'fullName',
+              'displayName'
+            ])
+            || hasMissingFullName()
+          )
           && request.resource.data.role == resource.data.role
           && request.resource.data.accountStatus == resource.data.accountStatus
           && request.resource.data.unitId == resource.data.unitId

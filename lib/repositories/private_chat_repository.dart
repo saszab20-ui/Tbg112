@@ -277,16 +277,18 @@ class PrivateChatRepository {
       participantNames[chat.ownerId] = chat.participantNames[chat.ownerId] ?? '';
     }
 
+    final newParticipantLogins = participantIds
+        .map((uid) => participantLogins[uid] ?? uid)
+        .toList();
+    final newParticipantNamesList = participantIds
+        .map((uid) => participantNames[uid] ?? uid)
+        .toList();
+
     final update = <String, Object?>{
       'participants': participantIds,
       'participantIds': participantIds,
-      'participantLogins': participantIds
-          .map((uid) => participantLogins[uid] ?? uid)
-          .toList(),
-      'participantNames': participantIds
-          .map((uid) => participantNames[uid] ?? uid)
-          .toList(),
-      'participantNameMap': participantNames,
+      'participantLogins': newParticipantLogins,
+      'participantNames': newParticipantNamesList,
       'updatedAt': FieldValue.serverTimestamp(),
     };
 
@@ -310,9 +312,6 @@ class PrivateChatRepository {
       update['typing.$uid'] = false;
       update['participantNameMap.$uid'] = participantNames[uid];
     }
-    if (newJoins.isNotEmpty) {
-      update['hiddenFor'] = FieldValue.arrayRemove(newJoins);
-    }
 
     for (final uid in removals) {
       update['participantNameMap.$uid'] = FieldValue.delete();
@@ -322,11 +321,25 @@ class PrivateChatRepository {
       update['deliveredReceipts.$uid'] = FieldValue.delete();
       update['readReceipts.$uid'] = FieldValue.delete();
       update['clearedAt.$uid'] = FieldValue.delete();
-      update['hiddenFor'] = FieldValue.arrayUnion([uid]);
     }
 
     final batch = _firestore.batch();
     batch.set(_chats.doc(chat.id), update, SetOptions(merge: true));
+
+    if (newJoins.isNotEmpty) {
+      batch.set(
+        _chats.doc(chat.id),
+        {'hiddenFor': FieldValue.arrayRemove(newJoins)},
+        SetOptions(merge: true),
+      );
+    }
+    if (removals.isNotEmpty) {
+      batch.set(
+        _chats.doc(chat.id),
+        {'hiddenFor': FieldValue.arrayUnion(removals)},
+        SetOptions(merge: true),
+      );
+    }
     for (final uid in newJoins) {
       final msgId = 'joined_notice_${uid}_${_uuid.v4()}';
       final joinMsg = ChatMessage(
@@ -479,11 +492,17 @@ class PrivateChatRepository {
     if (!_canManageMembers(actor, chat)) {
       throw StateError('Nie masz uprawnień do usuwania osób z tego czatu.');
     }
-    // We don't have the login here, but removing from participantLogins is
-    // best-effort. Re-addition will still work because we use arrayUnion.
+    // Removing from participantLogins/participantNames is best-effort here
+    // since we only have the uid.
+    final loginToRemove = chat.participantLogins.length == chat.participantIds.length
+        ? chat.participantLogins[chat.participantIds.indexOf(uid)]
+        : null;
+
     return _chats.doc(chat.id).set({
       'participants': FieldValue.arrayRemove([uid]),
       'participantIds': FieldValue.arrayRemove([uid]),
+      if (loginToRemove != null)
+        'participantLogins': FieldValue.arrayRemove([loginToRemove]),
       'participantNames': FieldValue.arrayRemove([chat.participantNames[uid] ?? '']),
       'hiddenFor': FieldValue.arrayUnion([uid]),
       'participantNameMap.$uid': FieldValue.delete(),
