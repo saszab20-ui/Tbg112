@@ -121,6 +121,13 @@ const _moderatorPermissions = [
     route: RoutePaths.reports,
   ),
   _ModeratorPermission(
+    key: 'approveAccounts',
+    title: 'Konta oczekujące',
+    subtitle: 'Weryfikacja i akceptacja nowych użytkowników',
+    icon: Icons.person_add_alt_1_outlined,
+    route: '${RoutePaths.usersManagement}?filter=pending',
+  ),
+  _ModeratorPermission(
     key: 'deleteMessages',
     title: 'Usuwanie wiadomości',
     subtitle: 'Cofanie nieodpowiednich wiadomości',

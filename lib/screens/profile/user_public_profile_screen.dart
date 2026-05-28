@@ -104,27 +104,39 @@ class _ProfileActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final current = ref.watch(currentAppUserProvider).asData?.value;
-    if (current == null || current.uid == user.uid) {
-      return const SizedBox.shrink();
-    }
+    if (current == null) return const SizedBox.shrink();
+
     return Column(
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () => _openPrivateChat(context, ref, current),
-            icon: const Icon(Icons.chat_bubble_outline),
-            label: const Text('Prywatna wiadomość'),
+        if (current.uid != user.uid)
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => _openPrivateChat(context, ref, current),
+              icon: const Icon(Icons.chat_bubble_outline),
+              label: const Text('Prywatna wiadomość'),
+            ),
           ),
-        ),
-        if (user.isModerator) ...[
+        if (current.isModerator && current.moderatorCan('manageReports')) ...[
           const SizedBox(height: 8),
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: () => context.push(RoutePaths.reports),
               icon: const Icon(Icons.assignment_outlined),
-              label: const Text('Prośby'),
+              label: const Text('Prośby (Raporty)'),
+            ),
+          ),
+        ],
+        if (current.isModerator && current.moderatorCan('approveAccounts')) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () =>
+                  context.push('${RoutePaths.usersManagement}?filter=pending'),
+              icon: const Icon(Icons.person_add_alt_1_outlined),
+              label: const Text('Konta oczekujące'),
             ),
           ),
         ],

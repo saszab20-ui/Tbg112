@@ -54,7 +54,9 @@ class ReportsScreen extends ConsumerWidget {
                   trailing: report.status == 'resolved'
                       ? const Icon(Icons.done)
                       : TextButton(
-                          onPressed: admin == null
+                          onPressed: admin == null ||
+                                  (!admin.isAdmin &&
+                                      !admin.moderatorCan('manageReports'))
                               ? null
                               : () => ref
                                     .read(moderationRepositoryProvider)
