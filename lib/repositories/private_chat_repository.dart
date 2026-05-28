@@ -254,13 +254,29 @@ class PrivateChatRepository {
     if (!participantIds.contains(chat.ownerId)) {
       participantIds.add(chat.ownerId);
     }
-    final participantNames = {
-      ...chat.participantNames,
-      for (final user in participants) user.uid: user.publicName,
-    };
-    final participantLogins = {
-      for (final user in participants) user.uid: user.login,
-    };
+
+    final participantNames = <String, String>{};
+    final participantLogins = <String, String>{};
+
+    // Keep existing names/logins for participants that stay
+    for (final uid in participantIds) {
+      final existingName = chat.participantNames[uid];
+      if (existingName != null) {
+        participantNames[uid] = existingName;
+      }
+    }
+
+    // Add/Update names/logins from the incoming participants list
+    for (final user in participants) {
+      participantNames[user.uid] = user.publicName;
+      participantLogins[user.uid] = user.login;
+    }
+
+    // Ensure owner is always accounted for
+    if (!participantNames.containsKey(chat.ownerId)) {
+      participantNames[chat.ownerId] = chat.participantNames[chat.ownerId] ?? '';
+    }
+
     final update = <String, Object?>{
       'participants': participantIds,
       'participantIds': participantIds,
@@ -273,23 +289,42 @@ class PrivateChatRepository {
       'participantNameMap': participantNames,
       'updatedAt': FieldValue.serverTimestamp(),
     };
-    for (final uid in participantIds) {
-      if (participantNames.containsKey(uid)) {
-        update['participantNameMap.$uid'] = participantNames[uid];
-      }
-    }
+
     final newJoins = <String>[];
     for (final uid in participantIds) {
-      if (!chat.participantIds.contains(uid)) newJoins.add(uid);
+      if (!chat.participantIds.contains(uid)) {
+        newJoins.add(uid);
+      }
     }
+
+    final removals = <String>[];
+    for (final uid in chat.participantIds) {
+      if (!participantIds.contains(uid)) {
+        removals.add(uid);
+      }
+    }
+
     for (final uid in newJoins) {
       update['joinedAt.$uid'] = FieldValue.serverTimestamp();
       update['unreadCount.$uid'] = 0;
       update['typing.$uid'] = false;
+      update['participantNameMap.$uid'] = participantNames[uid];
     }
     if (newJoins.isNotEmpty) {
       update['hiddenFor'] = FieldValue.arrayRemove(newJoins);
     }
+
+    for (final uid in removals) {
+      update['participantNameMap.$uid'] = FieldValue.delete();
+      update['joinedAt.$uid'] = FieldValue.delete();
+      update['unreadCount.$uid'] = FieldValue.delete();
+      update['typing.$uid'] = FieldValue.delete();
+      update['deliveredReceipts.$uid'] = FieldValue.delete();
+      update['readReceipts.$uid'] = FieldValue.delete();
+      update['clearedAt.$uid'] = FieldValue.delete();
+      update['hiddenFor'] = FieldValue.arrayUnion([uid]);
+    }
+
     final batch = _firestore.batch();
     batch.set(_chats.doc(chat.id), update, SetOptions(merge: true));
     for (final uid in newJoins) {
@@ -326,11 +361,20 @@ class PrivateChatRepository {
     if (chat.participantIds.contains(user.uid)) return Future.value();
     final batch = _firestore.batch();
     final chatRef = _chats.doc(chat.id);
+
+    final newParticipantIds = [...chat.participantIds, user.uid]..sort();
+
+    // Rebuild lists to ensure they are in sync and don't have duplicates or old data
+    final newNames = newParticipantIds.map((uid) {
+      if (uid == user.uid) return user.publicName;
+      return chat.participantNames[uid] ?? uid;
+    }).toList();
+
     batch.set(chatRef, {
-      'participants': FieldValue.arrayUnion([user.uid]),
-      'participantIds': FieldValue.arrayUnion([user.uid]),
+      'participants': newParticipantIds,
+      'participantIds': newParticipantIds,
       'participantLogins': FieldValue.arrayUnion([user.login]),
-      'participantNames': FieldValue.arrayUnion([user.publicName]),
+      'participantNames': newNames,
       'participantNameMap.${user.uid}': user.publicName,
       'joinedAt.${user.uid}': FieldValue.serverTimestamp(),
       'unreadCount.${user.uid}': 0,
@@ -435,12 +479,20 @@ class PrivateChatRepository {
     if (!_canManageMembers(actor, chat)) {
       throw StateError('Nie masz uprawnień do usuwania osób z tego czatu.');
     }
+    // We don't have the login here, but removing from participantLogins is
+    // best-effort. Re-addition will still work because we use arrayUnion.
     return _chats.doc(chat.id).set({
       'participants': FieldValue.arrayRemove([uid]),
       'participantIds': FieldValue.arrayRemove([uid]),
+      'participantNames': FieldValue.arrayRemove([chat.participantNames[uid] ?? '']),
       'hiddenFor': FieldValue.arrayUnion([uid]),
+      'participantNameMap.$uid': FieldValue.delete(),
+      'joinedAt.$uid': FieldValue.delete(),
       'unreadCount.$uid': FieldValue.delete(),
       'typing.$uid': FieldValue.delete(),
+      'deliveredReceipts.$uid': FieldValue.delete(),
+      'readReceipts.$uid': FieldValue.delete(),
+      'clearedAt.$uid': FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -495,6 +547,9 @@ class PrivateChatRepository {
       'joinedAt.${user.uid}': FieldValue.delete(),
       'unreadCount.${user.uid}': FieldValue.delete(),
       'typing.${user.uid}': FieldValue.delete(),
+      'deliveredReceipts.${user.uid}': FieldValue.delete(),
+      'readReceipts.${user.uid}': FieldValue.delete(),
+      'clearedAt.${user.uid}': FieldValue.delete(),
       'hiddenFor': FieldValue.arrayUnion([user.uid]),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));

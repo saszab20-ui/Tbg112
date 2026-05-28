@@ -276,13 +276,19 @@ service cloud.firestore {
         'unreadCount',
         'typing',
         'joinedAt',
+        'deliveredReceipts',
+        'readReceipts',
+        'clearedAt',
         'hiddenFor',
         'updatedAt'
       ]) || request.resource.data.diff(resource.data).affectedKeys().hasAny([
         'participantNameMap',
         'unreadCount',
         'typing',
-        'joinedAt'
+        'joinedAt',
+        'deliveredReceipts',
+        'readReceipts',
+        'clearedAt'
       ]);
     }
 
@@ -296,6 +302,9 @@ service cloud.firestore {
         'unreadCount',
         'typing',
         'joinedAt',
+        'deliveredReceipts',
+        'readReceipts',
+        'clearedAt',
         'hiddenFor',
         'visibilityMode',
         'expiresAt',
@@ -304,7 +313,10 @@ service cloud.firestore {
         'participantNameMap',
         'unreadCount',
         'typing',
-        'joinedAt'
+        'joinedAt',
+        'deliveredReceipts',
+        'readReceipts',
+        'clearedAt'
       ]);
     }
 
@@ -534,6 +546,9 @@ service cloud.firestore {
             'avatarUrl',
             'publicName',
             'presenceStatus',
+            'status',
+            'customStatus',
+            'isManualStatus',
             'lastSeenAt',
             'fcmTokens',
             'mustChangePassword',
