@@ -326,6 +326,8 @@ class UsersRepository {
     String uid,
     PresenceStatus status, {
     bool manual = false,
+    PresenceStatus? currentStatus,
+    bool? currentIsManual,
   }) async {
     final now = DateTime.now();
     final previous = _lastPresenceWrites[uid];
@@ -339,30 +341,80 @@ class UsersRepository {
         return;
       }
 
-      final doc = await userRef(uid).get();
-      final isManualStatus = doc.data()?['isManualStatus'] == true;
+      PresenceStatus? effectiveCurrentStatus = currentStatus;
+      bool effectiveIsManual = currentIsManual ?? false;
+
+      // Fallback to Firestore if current state is not provided
+      if (effectiveCurrentStatus == null || currentIsManual == null) {
+        final doc = await userRef(uid).get();
+        final data = doc.data() ?? {};
+        effectiveIsManual = data['isManualStatus'] == true;
+        final currentPresenceRaw =
+            data['presenceStatus'] as String? ?? data['status'] as String?;
+        effectiveCurrentStatus = PresenceStatus.fromWire(currentPresenceRaw);
+      }
+
+      if (kDebugMode) {
+        debugPrint(
+          'UsersRepository.updatePresence(heartbeat): uid=$uid '
+          'currentStatus=${effectiveCurrentStatus.name} isManualStatus=$effectiveIsManual '
+          'newRequestedStatus=${status.name}',
+        );
+      }
 
       // Don't auto-override manual override statuses with heartbeats
-      if (isManualStatus) {
+      if (effectiveIsManual &&
+          (effectiveCurrentStatus == PresenceStatus.busy ||
+              effectiveCurrentStatus == PresenceStatus.invisible ||
+              effectiveCurrentStatus == PresenceStatus.manual)) {
+        if (kDebugMode) {
+          debugPrint(
+            'UsersRepository.updatePresence: skipping heartbeat for manual status',
+          );
+        }
+        // Even if we don't update status, we might want to update lastSeenAt
+        // unless they are invisible.
+        if (effectiveCurrentStatus != PresenceStatus.invisible) {
+          await userRef(uid).update({
+            'lastSeenAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
         return;
       }
     }
 
     _lastPresenceWrites[uid] = _PresenceWrite(status: status, at: now);
-    return userRef(uid).update({
+    final payload = {
       'presenceStatus': status.name,
+      'status': status.name,
       'isManualStatus': manual,
       'lastSeenAt': FieldValue.serverTimestamp(),
-    });
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (kDebugMode) {
+      debugPrint(
+        'UsersRepository.updatePresence: uid=$uid manual=$manual payload=$payload',
+      );
+    }
+
+    return userRef(uid).update(payload);
   }
 
   Future<void> setCustomStatus(String uid, String statusText) {
-    return userRef(uid).update({
+    final payload = {
       'presenceStatus': PresenceStatus.manual.name,
+      'status': PresenceStatus.manual.name,
       'isManualStatus': true,
       'customStatus': statusText.trim(),
       'lastSeenAt': FieldValue.serverTimestamp(),
-    });
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (kDebugMode) {
+      debugPrint('UsersRepository.setCustomStatus: uid=$uid payload=$payload');
+    }
+    return userRef(uid).update(payload);
   }
 
   Future<void> saveFcmToken(String uid, String token) {

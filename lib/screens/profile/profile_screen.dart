@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -70,6 +71,13 @@ class _ProfileContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    if (kDebugMode) {
+      debugPrint(
+        'ProfileScreen._ProfileContent.build: uid=${user.uid} '
+        'presenceStatus=${user.presenceStatus.name} '
+        'isManualStatus=${user.isManualStatus}',
+      );
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -209,7 +217,13 @@ void _showStatusSelector(BuildContext context, WidgetRef ref, AppUser user) {
                 onTap: () {
                   ref
                       .read(usersRepositoryProvider)
-                      .updatePresence(user.uid, status, manual: true);
+                      .updatePresence(
+                        user.uid,
+                        status,
+                        manual: true,
+                        currentStatus: user.presenceStatus,
+                        currentIsManual: user.isManualStatus,
+                      );
                   Navigator.pop(context);
                 },
               ),

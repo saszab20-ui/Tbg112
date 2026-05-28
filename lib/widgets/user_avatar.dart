@@ -14,6 +14,13 @@ class UserAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (kDebugMode) {
+      debugPrint(
+        'UserAvatar.build: uid=${user.uid} '
+        'presenceStatus=${user.presenceStatus.name} '
+        'isManualStatus=${user.isManualStatus}',
+      );
+    }
     final avatarUrl = user.avatarUrl;
     final borderColor = _presenceBorderColor(user);
     final initials = Text(
